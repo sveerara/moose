@@ -18,7 +18,7 @@
 #include "SlaveNeighborhoodThread.h"
 #include "NearestNodeThread.h"
 #include "Moose.h"
-#include "MooseMesh.h"
+#include "KDTree.h"
 
 // libMesh
 #include "libmesh/boundary_info.h"
@@ -61,6 +61,7 @@ NearestNodeLocator::NearestNodeLocator(SubProblem & subproblem,
     mooseError("NearestNodeLocator being created for boundaries ", _boundary1, " and ", _boundary2,
   ", but boundary ", _boundary2, " does not exist");
   */
+  _mesh.errorIfDistributedMesh("NearestNodeLocator");
 }
 
 NearestNodeLocator::~NearestNodeLocator() { delete _slave_node_range; }
@@ -69,7 +70,6 @@ void
 NearestNodeLocator::findNodes()
 {
   Moose::perf_log.push("NearestNodeLocator::findNodes()", "Execution");
-
   /**
    * If this is the first time through we're going to build up a "neighborhood" of nodes
    * surrounding each of the slave nodes.  This will speed searching later.
@@ -138,9 +138,25 @@ NearestNodeLocator::findNodes()
     const std::map<dof_id_type, std::vector<dof_id_type>> & node_to_elem_map =
         _mesh.nodeToElemMap();
 
+    // Convert trial master nodes to a vector of Points. This would be used to
+    // construct the Kdtree.
+    std::vector<Point> master_points(trial_master_nodes.size());
+    for (unsigned int i = 0; i < trial_master_nodes.size(); ++i)
+    {
+      const Node & node = _mesh.nodeRef(trial_master_nodes[i]);
+      for (unsigned int j = 0; j < LIBMESH_DIM; ++j)
+        master_points[i](j) = node(j);
+    }
+
+    // Create object kd_tree of class KDTree using the coordinates of trial
+    // master nodes.
+    KDTree kd_tree(master_points);
+    kd_tree.buildTree();
+
     NodeIdRange trial_slave_node_range(trial_slave_nodes.begin(), trial_slave_nodes.end(), 1);
 
-    SlaveNeighborhoodThread snt(_mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize());
+    SlaveNeighborhoodThread snt(
+        _mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize(), kd_tree);
 
     Threads::parallel_reduce(trial_slave_node_range, snt);
 
