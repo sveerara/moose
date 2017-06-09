@@ -103,6 +103,9 @@ protected:
   Real _normal_smoothing_distance; // Distance from edge (in parametric coords) within which to
                                    // perform normal smoothing
   NORMAL_SMOOTHING_METHOD _normal_smoothing_method;
+
+  bool _automatic_patch_update;    // Update patch for the nodes saved in recheck_slave_nodes for
+                                   // which penetration was not detected
 };
 
 /**

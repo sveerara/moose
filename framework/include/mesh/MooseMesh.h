@@ -438,6 +438,11 @@ public:
   unsigned int getPatchSize() const;
 
   /**
+   * Getter for the automatic patch update parameter.
+   **/
+   bool autoUpdatePatch() const { return _automatic_patch_update; };
+
+  /**
    * Set the patch size update strategy
    */
   void setPatchUpdateStrategy(MooseEnum patch_update_strategy);
@@ -966,6 +971,9 @@ protected:
 
   /// The number of nodes to consider in the NearestNode neighborhood.
   unsigned int _patch_size;
+
+  /// Set the automatic patch update to true if the patch has to be updated automatically as and when the slave node moves outside the previous patch
+  bool _automatic_patch_update;
 
   /// The patch update strategy
   MooseEnum _patch_update_strategy;

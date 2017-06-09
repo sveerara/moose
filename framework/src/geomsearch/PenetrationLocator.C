@@ -48,7 +48,8 @@ PenetrationLocator::PenetrationLocator(SubProblem & subproblem,
     _tangential_tolerance(0.0),
     _do_normal_smoothing(false),
     _normal_smoothing_distance(0.0),
-    _normal_smoothing_method(NSM_EDGE_BASED)
+    _normal_smoothing_method(NSM_EDGE_BASED),
+    _automatic_patch_update(_mesh.autoUpdatePatch())
 {
   // Preconstruct an FE object for each thread we're going to use and for each lower-dimensional
   // element
@@ -121,6 +122,37 @@ PenetrationLocator::detectPenetration()
 
   Threads::parallel_reduce(slave_node_range, pt);
 
+  std::vector<dof_id_type> recheck_slave_nodes = pt._recheck_slave_nodes;
+
+  if (recheck_slave_nodes.size() > 0 && _automatic_patch_update)
+  {
+     // Update the patch for this subset of slave nodes and calculate the nearest neighbor_nodes
+     _nearest_node.updatePatch(recheck_slave_nodes);
+
+     // Re-run the penetration thread to see if these nodes are in contact with the updated patch
+     NodeIdRange recheck_slave_node_range(recheck_slave_nodes.begin(), recheck_slave_nodes.end(), 1);
+
+     PenetrationThread pt(_subproblem,
+                          _mesh,
+                          _master_boundary,
+                          _slave_boundary,
+                          _penetration_info,
+                          _check_whether_reasonable,
+                          _update_location,
+                          _tangential_tolerance,
+                          _do_normal_smoothing,
+                          _normal_smoothing_distance,
+                          _normal_smoothing_method,
+                          _fe,
+                          _fe_type,
+                          _nearest_node,
+                          _mesh.nodeToElemMap(),
+                          elem_list,
+                          side_list,
+                          id_list);
+
+     Threads::parallel_reduce(recheck_slave_node_range, pt);
+  }
   Moose::perf_log.pop("detectPenetration()", "Execution");
 }
 

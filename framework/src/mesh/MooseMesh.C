@@ -140,6 +140,7 @@ validParams<MooseMesh>()
                         " when DistributedMesh is used. Value is ignored in ReplicatedMesh mode");
   params.addParam<unsigned int>(
       "patch_size", 40, "The number of nodes to consider in the NearestNode neighborhood.");
+  params.addParam<bool>("automatic_patch_update", false, "Updates the patch for slave nodes if penetration is not detected.");
 
   params.registerBase("MooseMesh");
 
@@ -171,6 +172,7 @@ MooseMesh::MooseMesh(const InputParameters & parameters)
     _node_to_elem_map_built(false),
     _node_to_active_semilocal_elem_map_built(false),
     _patch_size(getParam<unsigned int>("patch_size")),
+    _automatic_patch_update(getParam<bool>("automatic_patch_update")),
     _patch_update_strategy(getParam<MooseEnum>("patch_update_strategy")),
     _regular_orthogonal_mesh(false),
     _allow_recovery(true),

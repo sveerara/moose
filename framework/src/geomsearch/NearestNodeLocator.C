@@ -212,6 +212,116 @@ NearestNodeLocator::nearestNode(dof_id_type node_id)
   return _nearest_node_info[node_id]._nearest_node;
 }
 
+void
+NearestNodeLocator::updatePatch(std::vector<dof_id_type> & recheck_slave_nodes)
+{
+  Moose::perf_log.push("NearestNodeLocator::updatePatch()", "Execution");
+
+  std::vector<dof_id_type> trial_master_nodes;
+
+  // Build a bounding box.  No reason to consider nodes outside of our inflated BB
+  MeshTools::BoundingBox * my_inflated_box = NULL;
+
+  const std::vector<Real> & inflation = _mesh.getGhostedBoundaryInflation();
+
+  // This means there was a user specified inflation... so we can build a BB
+  if (inflation.size() > 0)
+  {
+    BoundingBox my_box = MeshTools::create_local_bounding_box(_mesh);
+
+    Real distance_x = 0;
+    Real distance_y = 0;
+    Real distance_z = 0;
+
+    distance_x = inflation[0];
+
+    if (inflation.size() > 1)
+      distance_y = inflation[1];
+
+    if (inflation.size() > 2)
+      distance_z = inflation[2];
+
+    my_inflated_box = new MeshTools::BoundingBox(Point(my_box.first(0) - distance_x,
+                                                       my_box.first(1) - distance_y,
+                                                       my_box.first(2) - distance_z),
+                                                 Point(my_box.second(0) + distance_x,
+                                                       my_box.second(1) + distance_y,
+                                                       my_box.second(2) + distance_z));
+  }
+
+  // Data structures to hold the Nodal Boundary conditions
+  ConstBndNodeRange & bnd_nodes = *_mesh.getBoundaryNodeRange();
+  for (const auto & bnode : bnd_nodes)
+  {
+    BoundaryID boundary_id = bnode->_bnd_id;
+    dof_id_type node_id = bnode->_node->id();
+
+    // If we have a BB only consider saving this node if it's in our inflated BB
+    if (!my_inflated_box || (my_inflated_box->contains_point(*bnode->_node)))
+    {
+      if (boundary_id == _boundary1)
+        trial_master_nodes.push_back(node_id);
+    }
+  }
+
+  // don't need the BB anymore
+  delete my_inflated_box;
+
+  const std::map<dof_id_type, std::vector<dof_id_type>> & node_to_elem_map =
+      _mesh.nodeToElemMap();
+
+  // Convert trial master nodes to a vector of Points. This would be used to
+  // construct the Kdtree.
+  std::vector<Point> master_points(trial_master_nodes.size());
+  for (unsigned int i = 0; i < trial_master_nodes.size(); ++i)
+  {
+    const Node & node = _mesh.nodeRef(trial_master_nodes[i]);
+    for (unsigned int j = 0; j < LIBMESH_DIM; ++j)
+      master_points[i](j) = node(j);
+  }
+
+  // Create object kd_tree of class KDTree using the coordinates of trial
+  // master nodes.
+  KDTree kd_tree(master_points);
+  kd_tree.buildTree();
+
+  NodeIdRange trial_slave_node_range(recheck_slave_nodes.begin(), recheck_slave_nodes.end(), 1);
+
+  SlaveNeighborhoodThread snt(
+      _mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize(), kd_tree);
+
+  Threads::parallel_reduce(trial_slave_node_range, snt);
+
+  std::vector<dof_id_type> tracked_recheck_slave_nodes = snt._slave_nodes;
+
+  // Create the recheck_slave_node_range for which the closest node would be calculated
+  NodeIdRange recheck_slave_node_range(tracked_recheck_slave_nodes.begin(), tracked_recheck_slave_nodes.end(), 1);
+
+  // update the neighbor nodes (patch) corresponding to the tracked slave nodes
+  if (tracked_recheck_slave_nodes.size() != 0)
+  {
+    for (const auto & node_id : recheck_slave_node_range)
+      _neighbor_nodes[node_id] = snt._neighbor_nodes[node_id];
+
+    for (const auto & dof : snt._ghosted_elems)
+      _subproblem.addGhostedElem(dof);
+
+    NearestNodeThread nnt(_mesh, _neighbor_nodes);
+
+    Threads::parallel_reduce(recheck_slave_node_range, nnt);
+
+    _max_patch_percentage = nnt._max_patch_percentage;
+
+    _nearest_node_info = nnt._nearest_node_info;
+
+    // update the nearest nodes information corresponding to the tracked slave nodes
+    for (const auto & node_id : recheck_slave_node_range)
+      _nearest_node_info[node_id] = nnt._nearest_node_info[node_id];
+  }
+
+  Moose::perf_log.pop("NearestNodeLocator::updatePatch()", "Execution");
+}
+
 //===================================================================
 NearestNodeLocator::NearestNodeInfo::NearestNodeInfo()
   : _nearest_node(NULL), _distance(std::numeric_limits<Real>::max())

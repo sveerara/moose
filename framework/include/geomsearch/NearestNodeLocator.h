@@ -69,6 +69,13 @@ public:
   NodeIdRange & slaveNodeRange() { return *_slave_node_range; }
 
   /**
+   * Reconstructs the KDTree, updates the patch for the nodes in
+   * recheck_slave_nodes, and updates the closest neighbor for these nodes in
+   * nearest node info.
+   */
+  void updatePatch(std::vector<dof_id_type> & recheck_slave_nodes);
+
+  /**
    * Data structure used to hold nearest node info.
    */
   class NearestNodeInfo

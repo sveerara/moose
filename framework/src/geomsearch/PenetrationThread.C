@@ -197,6 +197,7 @@ PenetrationThread::operator()(const NodeIdRange & range)
     if (!info_set)
     {
       const Node * closest_node = _nearest_node.nearestNode(node.id());
+
       auto node_to_elem_pair = _node_to_elem_map.find(closest_node->id());
       mooseAssert(node_to_elem_pair != _node_to_elem_map.end(),
                   "Missing entry in node to elem map");
@@ -443,6 +444,13 @@ PenetrationThread::operator()(const NodeIdRange & range)
 
     if (!info_set)
     {
+      // if penetration is not detected within the saved patch, it is possible
+      // that the slave node has moved outside the saved patch. So, the patch
+      // for the slave nodes saved in _recheck_slave_nodes has to be updated
+      // and the penetration detection has to be re-run on the updated patch.
+
+      _recheck_slave_nodes.push_back(node_id);
+
       delete info;
       info = NULL;
     }
@@ -462,11 +470,6 @@ PenetrationThread::operator()(const NodeIdRange & range)
       }
     }
   }
-}
-
-void
-PenetrationThread::join(const PenetrationThread & /*other*/)
-{
 }
 
 void
@@ -1767,4 +1770,10 @@ PenetrationThread::getSidesOnMasterBoundary(std::vector<unsigned int> & sides,
     if (_elem_list[m] == elem->id())
       if (_id_list[m] == static_cast<short>(_master_boundary))
         sides.push_back(_side_list[m]);
+}
+
+void
+PenetrationThread::join(const PenetrationThread & other)
+{
+  _recheck_slave_nodes.insert(_recheck_slave_nodes.end(), other._recheck_slave_nodes.begin(), other._recheck_slave_nodes.end());
 }
