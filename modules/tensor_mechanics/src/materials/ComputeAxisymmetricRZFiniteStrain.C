@@ -28,6 +28,8 @@ ComputeAxisymmetricRZFiniteStrain::ComputeAxisymmetricRZFiniteStrain(
     const InputParameters & parameters)
   : Compute2DFiniteStrain(parameters), _disp_old_0(coupledValueOld("displacements", 0))
 {
+  if (!_fe_problem.mesh().hasSecondOrderElements())
+    _ave_zz_strain = true;
 }
 
 void

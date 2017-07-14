@@ -26,6 +26,8 @@ ComputeAxisymmetricRZSmallStrain::ComputeAxisymmetricRZSmallStrain(
     const InputParameters & parameters)
   : Compute2DSmallStrain(parameters)
 {
+  if (!_fe_problem.mesh().hasSecondOrderElements())
+    _ave_zz_strain = true;
 }
 
 void

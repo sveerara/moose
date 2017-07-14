@@ -35,6 +35,9 @@ protected:
   virtual Real computeOutOfPlaneStrain() = 0;
 
   const unsigned int _out_of_plane_direction;
+
+  /// Whether to average the out of plane strain
+  bool _ave_zz_strain;
 };
 
 #endif // COMPUTE2DSMALLSTRAIN_H
