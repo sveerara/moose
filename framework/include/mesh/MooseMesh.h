@@ -443,6 +443,11 @@ public:
    bool autoUpdatePatch() const { return _automatic_patch_update; };
 
   /**
+   * Getter for the geometric search strategy.
+   **/
+   bool usePriorityQueue() const { return _priority_queue; };
+  
+  /**
    * Set the patch size update strategy
    */
   void setPatchUpdateStrategy(MooseEnum patch_update_strategy);
@@ -974,6 +979,9 @@ protected:
 
   /// Set the automatic patch update to true if the patch has to be updated automatically as and when the slave node moves outside the previous patch
   bool _automatic_patch_update;
+
+  /// Set the priority queue parameter to true if priority queue has to be used for Geometric Search. If KD-Tree needs to be used, set this parameter to false.
+  bool _priority_queue;
 
   /// The patch update strategy
   MooseEnum _patch_update_strategy;

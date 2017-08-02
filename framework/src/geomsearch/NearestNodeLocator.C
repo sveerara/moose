@@ -16,6 +16,7 @@
 #include "MooseMesh.h"
 #include "SubProblem.h"
 #include "SlaveNeighborhoodThread.h"
+#include "SlaveNeighborhoodThreadOld.h"
 #include "NearestNodeThread.h"
 #include "Moose.h"
 #include "KDTree.h"
@@ -46,7 +47,8 @@ NearestNodeLocator::NearestNodeLocator(SubProblem & subproblem,
     _slave_node_range(NULL),
     _boundary1(boundary1),
     _boundary2(boundary2),
-    _first(true)
+    _first(true),
+    _priority_queue(_mesh.usePriorityQueue())
 {
   /*
   //sanity check on boundary ids
@@ -138,36 +140,53 @@ NearestNodeLocator::findNodes()
     const std::map<dof_id_type, std::vector<dof_id_type>> & node_to_elem_map =
         _mesh.nodeToElemMap();
 
-    // Convert trial master nodes to a vector of Points. This would be used to
-    // construct the Kdtree.
-    std::vector<Point> master_points(trial_master_nodes.size());
-    for (unsigned int i = 0; i < trial_master_nodes.size(); ++i)
-    {
-      const Node & node = _mesh.nodeRef(trial_master_nodes[i]);
-      for (unsigned int j = 0; j < LIBMESH_DIM; ++j)
-        master_points[i](j) = node(j);
-    }
-
-    // Create object kd_tree of class KDTree using the coordinates of trial
-    // master nodes.
-    KDTree kd_tree(master_points);
-    kd_tree.buildTree();
-
     NodeIdRange trial_slave_node_range(trial_slave_nodes.begin(), trial_slave_nodes.end(), 1);
 
-    SlaveNeighborhoodThread snt(
-        _mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize(), kd_tree);
+    if (_priority_queue == true)
+    {
+      SlaveNeighborhoodThreadOld snt(_mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize());
 
-    Threads::parallel_reduce(trial_slave_node_range, snt);
+      Threads::parallel_reduce(trial_slave_node_range, snt);
+      _slave_nodes = snt._slave_nodes;
+      _neighbor_nodes = snt._neighbor_nodes;
 
-    _slave_nodes = snt._slave_nodes;
-    _neighbor_nodes = snt._neighbor_nodes;
+      for (const auto & dof : snt._ghosted_elems)
+        _subproblem.addGhostedElem(dof);
 
-    for (const auto & dof : snt._ghosted_elems)
-      _subproblem.addGhostedElem(dof);
+      // Cache the slave_node_range so we don't have to build it each time
+      _slave_node_range = new NodeIdRange(_slave_nodes.begin(), _slave_nodes.end(), 1);
+    }
+    else
+    {
+      // Convert trial master nodes to a vector of Points. This would be used to
+      // construct the Kdtree.
+      std::vector<Point> master_points(trial_master_nodes.size());
+      for (unsigned int i = 0; i < trial_master_nodes.size(); ++i)
+      {
+        const Node & node = _mesh.nodeRef(trial_master_nodes[i]);
+        for (unsigned int j = 0; j < LIBMESH_DIM; ++j)
+          master_points[i](j) = node(j);
+      }
 
-    // Cache the slave_node_range so we don't have to build it each time
-    _slave_node_range = new NodeIdRange(_slave_nodes.begin(), _slave_nodes.end(), 1);
+      // Create object kd_tree of class KDTree using the coordinates of trial
+      // master nodes.
+      KDTree kd_tree(master_points);
+      kd_tree.buildTree();
+
+      SlaveNeighborhoodThread snt(
+          _mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize(), kd_tree);
+
+      Threads::parallel_reduce(trial_slave_node_range, snt);
+
+      _slave_nodes = snt._slave_nodes;
+      _neighbor_nodes = snt._neighbor_nodes;
+
+      for (const auto & dof : snt._ghosted_elems)
+        _subproblem.addGhostedElem(dof);
+
+      // Cache the slave_node_range so we don't have to build it each time
+      _slave_node_range = new NodeIdRange(_slave_nodes.begin(), _slave_nodes.end(), 1);
+    }
   }
 
   _nearest_node_info.clear();
@@ -270,55 +289,87 @@ NearestNodeLocator::updatePatch(std::vector<dof_id_type> & recheck_slave_nodes)
   const std::map<dof_id_type, std::vector<dof_id_type>> & node_to_elem_map =
       _mesh.nodeToElemMap();
 
-  // Convert trial master nodes to a vector of Points. This would be used to
-  // construct the Kdtree.
-  std::vector<Point> master_points(trial_master_nodes.size());
-  for (unsigned int i = 0; i < trial_master_nodes.size(); ++i)
-  {
-    const Node & node = _mesh.nodeRef(trial_master_nodes[i]);
-    for (unsigned int j = 0; j < LIBMESH_DIM; ++j)
-      master_points[i](j) = node(j);
-  }
-
-  // Create object kd_tree of class KDTree using the coordinates of trial
-  // master nodes.
-  KDTree kd_tree(master_points);
-  kd_tree.buildTree();
-
   NodeIdRange trial_slave_node_range(recheck_slave_nodes.begin(), recheck_slave_nodes.end(), 1);
 
-  SlaveNeighborhoodThread snt(
-      _mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize(), kd_tree);
-
-  Threads::parallel_reduce(trial_slave_node_range, snt);
-
-  std::vector<dof_id_type> tracked_recheck_slave_nodes = snt._slave_nodes;
-
-  // Create the recheck_slave_node_range for which the closest node would be calculated
-  NodeIdRange recheck_slave_node_range(tracked_recheck_slave_nodes.begin(), tracked_recheck_slave_nodes.end(), 1);
-
-  // update the neighbor nodes (patch) corresponding to the tracked slave nodes
-  if (tracked_recheck_slave_nodes.size() != 0)
+  if (_priority_queue == true)
   {
-    for (const auto & node_id : recheck_slave_node_range)
-      _neighbor_nodes[node_id] = snt._neighbor_nodes[node_id];
+    SlaveNeighborhoodThreadOld snt(_mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize());
 
-    for (const auto & dof : snt._ghosted_elems)
-      _subproblem.addGhostedElem(dof);
+    Threads::parallel_reduce(trial_slave_node_range, snt);
 
-    NearestNodeThread nnt(_mesh, _neighbor_nodes);
+    std::vector<dof_id_type> tracked_recheck_slave_nodes = snt._slave_nodes;
 
-    Threads::parallel_reduce(recheck_slave_node_range, nnt);
+    // Create the recheck_slave_node_range for which the closest node would be calculated
+    NodeIdRange recheck_slave_node_range(tracked_recheck_slave_nodes.begin(), tracked_recheck_slave_nodes.end(), 1);
 
-    _max_patch_percentage = nnt._max_patch_percentage;
+    // update the neighbor nodes (patch) corresponding to the tracked slave nodes
+    if (tracked_recheck_slave_nodes.size() != 0)
+      for (const auto & node_id : recheck_slave_node_range)
+        _neighbor_nodes[node_id] = snt._neighbor_nodes[node_id];
 
-    _nearest_node_info = nnt._nearest_node_info;
+    // update the neighbor nodes (patch) corresponding to the tracked slave nodes
+    if (tracked_recheck_slave_nodes.size() != 0)
+    {
+      NearestNodeThread nnt(_mesh, _neighbor_nodes);
 
-    // update the nearest nodes information corresponding to the tracked slave nodes
-    for (const auto & node_id : recheck_slave_node_range)
-      _nearest_node_info[node_id] = nnt._nearest_node_info[node_id];
+      Threads::parallel_reduce(recheck_slave_node_range, nnt);
+
+      _max_patch_percentage = nnt._max_patch_percentage;
+
+      _nearest_node_info = nnt._nearest_node_info;
+
+      // update the nearest nodes information corresponding to the tracked slave nodes
+      for (const auto & node_id : recheck_slave_node_range)
+        _nearest_node_info[node_id] = nnt._nearest_node_info[node_id];
+    }
   }
+  else
+  {
+    // Convert trial master nodes to a vector of Points. This would be used to
+    // construct the Kdtree.
+    std::vector<Point> master_points(trial_master_nodes.size());
+    for (unsigned int i = 0; i < trial_master_nodes.size(); ++i)
+    {
+      const Node & node = _mesh.nodeRef(trial_master_nodes[i]);
+      for (unsigned int j = 0; j < LIBMESH_DIM; ++j)
+        master_points[i](j) = node(j);
+    }
+    // Create object kd_tree of class KDTree using the coordinates of trial
+    // master nodes.
+    KDTree kd_tree(master_points);
+    kd_tree.buildTree();
 
+    SlaveNeighborhoodThread snt(
+        _mesh, trial_master_nodes, node_to_elem_map, _mesh.getPatchSize(), kd_tree);
+
+    Threads::parallel_reduce(trial_slave_node_range, snt);
+
+    std::vector<dof_id_type> tracked_recheck_slave_nodes = snt._slave_nodes;
+
+    // Create the recheck_slave_node_range for which the closest node would be calculated
+    NodeIdRange recheck_slave_node_range(tracked_recheck_slave_nodes.begin(), tracked_recheck_slave_nodes.end(), 1);
+
+    // update the neighbor nodes (patch) corresponding to the tracked slave nodes
+    if (tracked_recheck_slave_nodes.size() != 0)
+      for (const auto & node_id : recheck_slave_node_range)
+        _neighbor_nodes[node_id] = snt._neighbor_nodes[node_id];
+
+    // update the neighbor nodes (patch) corresponding to the tracked slave nodes
+    if (tracked_recheck_slave_nodes.size() != 0)
+    {
+      NearestNodeThread nnt(_mesh, _neighbor_nodes);
+
+      Threads::parallel_reduce(recheck_slave_node_range, nnt);
+
+      _max_patch_percentage = nnt._max_patch_percentage;
+
+      _nearest_node_info = nnt._nearest_node_info;
+
+      // update the nearest nodes information corresponding to the tracked slave nodes
+      for (const auto & node_id : recheck_slave_node_range)
+        _nearest_node_info[node_id] = nnt._nearest_node_info[node_id];
+    }
+  }
   Moose::perf_log.pop("NearestNodeLocator::updatePatch()", "Execution");
 }
 
