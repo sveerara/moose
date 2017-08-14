@@ -1322,7 +1322,23 @@ NonlinearSystemBase::findImplicitGeometricCouplingEntries(
         }
       }
 
-      std::vector<dof_id_type> master_nodes = it.second->_neighbor_nodes[slave_node];
+      const Node * master_node = it.second->nearestNode(slave_node);
+
+      auto master_node_to_elem_pair = node_to_elem_map.find(master_node->id());
+      mooseAssert(master_node_to_elem_pair != node_to_elem_map.end(),
+                  "Missing entry in node to elem map");
+      const std::vector<dof_id_type> & master_node_elems = master_node_to_elem_pair->second;
+      // Get the dof indices from each elem connected to the node
+      for (const auto & cur_elem : master_node_elems)
+      {
+        std::vector<dof_id_type> dof_indices;
+        dofMap().dof_indices(_mesh.elemPtr(cur_elem), dof_indices);
+
+        for (const auto & dof : dof_indices)
+          unique_master_indices.insert(dof);
+      }
+
+    /*  std::vector<dof_id_type> master_nodes = it.second->_neighbor_nodes[slave_node];
 
       for (const auto & master_node : master_nodes)
       {
@@ -1341,7 +1357,7 @@ NonlinearSystemBase::findImplicitGeometricCouplingEntries(
             unique_master_indices.insert(dof);
         }
       }
-
+*/
       for (const auto & slave_id : unique_slave_indices)
         for (const auto & master_id : unique_master_indices)
         {
