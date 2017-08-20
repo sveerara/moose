@@ -179,4 +179,18 @@
     difference_tol = 1E10
     prereq = 'incrementalplanestrain_Bbar'
   [../]
+  [./2DRZ_large_model]
+    type = 'PetscJacobianTester'
+    input = '2D-RZ_jacobian_test.i'
+    ratio_tol = 3E-6
+    difference_tol = 1E10
+  [../]
+  [./2DRZ_large_model_Bbar]
+    type = 'PetscJacobianTester'
+    input = '2D-RZ_jacobian_test.i'
+    cli_args = 'GlobalParams/volumetric_locking_correction=true'
+    ratio_tol = 3E-6
+    difference_tol = 1E10
+    prereq = '2DRZ_large_model'
+  [../]
 []

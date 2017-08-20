@@ -10,6 +10,8 @@
 #include "ElasticityTensorTools.h"
 #include "libmesh/quadrature.h"
 
+registerMooseObject("TensorMechanicsApp", StressDivergence2DTensors);
+
 template <>
 InputParameters
 validParams<StressDivergence2DTensors>()
@@ -65,7 +67,6 @@ StressDivergence2DTensors::computeQpResidual()
   }
   else
     mooseError("Invalid component for this 2D problem.");
-
   return div;
 }
 
@@ -84,7 +85,7 @@ StressDivergence2DTensors::computeQpJacobian()
 }
 
 void
-StressDivergence2DTensors::computeOffDiagJacobian(unsigned int jvar)
+StressDivergence2DTensors::computeOffDiagJacobian(MooseVariableFEBase & jvar)
 {
   computeAverageGradientZZTest();
   computeAverageGradientZZPhi();
@@ -122,6 +123,7 @@ StressDivergence2DTensors::computeQpOffDiagJacobian(unsigned int jvar)
                  (*_deigenstrain_dT)[_qp](k, l);
       return jac * _phi[_j][_qp];
     }
+  }
   return 0.0;
 }
 
@@ -199,47 +201,55 @@ StressDivergence2DTensors::calculateJacobian(unsigned int ivar, unsigned int jva
   // K = B^T_i * C * B_j + Bvol^T_i * C * Bvol_j + B^T_i * C * Bvol_j + Bvol^T_i * C * B_j
   if (_volumetric_locking_correction)
   {
-    RealGradient new_test(2, 0.0);
-    RealGradient new_phi(2, 0.0);
+    RealGradient new_test(3, 0.0);
+    RealGradient new_phi(3, 0.0);
 
     new_test(0) = _grad_test[_i][_qp](0);
     new_test(1) = _grad_test[_i][_qp](1);
+    new_test(2) = getGradientZZTest();
     new_phi(0) = _grad_phi[_j][_qp](0);
     new_phi(1) = _grad_phi[_j][_qp](1);
+    new_phi(2) = getGradientZZPhi();
 
     // Bvol^T_i * C * Bvol_j
     Real sum = 0.0;
     for (unsigned i = 0; i < 2; ++i)
       for (unsigned j = 0; j < 2; ++j)
         sum += _Jacobian_mult[_qp](i, i, j, j);
+
     val += sum * (_avg_grad_test[_i][ivar] - new_test(ivar)) *
            (_avg_grad_phi[_j][jvar] - new_phi(jvar)) / 2.0;
 
     // B^T_i * C * Bvol_j
-    RealGradient sum_2x1;
+    RealGradient sum_2x1(3, 0.0);
     sum_2x1(0) = _Jacobian_mult[_qp](0, 0, 0, 0) + _Jacobian_mult[_qp](0, 0, 1, 1);
     sum_2x1(1) = _Jacobian_mult[_qp](1, 1, 0, 0) + _Jacobian_mult[_qp](1, 1, 1, 1);
+    sum_2x1(2) = _Jacobian_mult[_qp](2, 2, 0, 0) + _Jacobian_mult[_qp](2, 2, 1, 1);
+    Real sum_2x1_3 = _Jacobian_mult[_qp](0, 1, 0, 0) + _Jacobian_mult[_qp](0, 1, 1, 1);
+
     if (ivar == 0 && jvar == 0)
-      val += sum_2x1(0) * test(0) * (_avg_grad_phi[_j][0] - new_phi(0));
+      val += (sum_2x1(0) * new_test(0) + sum_2x1(2) * new_test(2) + sum_2x1_3 * new_test(1) / 2.0) *
+             (_avg_grad_phi[_j][0] - new_phi(0));
     else if (ivar == 0 && jvar == 1)
-      val += sum_2x1(0) * test(0) * (_avg_grad_phi[_j][1] - new_phi(1));
+        val += (sum_2x1(0) * new_test(0) + sum_2x1(2) * new_test(2) + sum_2x1(3) * new_test(1) / 2.0 ) * (_avg_grad_phi[_j][1] - new_phi(1));
     else if (ivar == 1 && jvar == 0)
-      val += sum_2x1(1) * test(1) * (_avg_grad_phi[_j][0] - new_phi(0));
-    else
-      val += sum_2x1(1) * test(1) * (_avg_grad_phi[_j][1] - new_phi(1));
+      val += (sum_2x1(1) * new_test(1) + sum_2x1(3) * new_test(0) / 2.0) * (_avg_grad_phi[_j][0] - new_phi(0));
+    else if (ivar == 1 && jvar == 1)
+      val += (sum_2x1(1) * new_test(1) + sum_2x1_3 * new_test(0) / 2.0) * (_avg_grad_phi[_j][1] - new_phi(1));
 
     // Bvol^T_i * C * B_j
-    // val = trace (C * B_j) *(avg_grad_test[_i][ivar] - new_test(ivar))
-    if (jvar == 0)
-      for (unsigned int i = 0; i < 2; ++i)
-        val +=
-            (_Jacobian_mult[_qp](i, i, 0, 0) * phi(0) + _Jacobian_mult[_qp](i, i, 0, 1) * phi(1)) *
-            (_avg_grad_test[_i][ivar] - new_test(ivar));
-    else if (jvar == 1)
-      for (unsigned int i = 0; i < 2; ++i)
-        val +=
-            (_Jacobian_mult[_qp](i, i, 0, 1) * phi(0) + _Jacobian_mult[_qp](i, i, 1, 1) * phi(1)) *
-            (_avg_grad_test[_i][ivar] - new_test(ivar));
+    sum_2x1(0) = _Jacobian_mult[_qp](0, 0, 0, 0) + _Jacobian_mult[_qp](1, 1, 0, 0);
+    sum_2x1(1) = _Jacobian_mult[_qp](0, 0, 1, 1) + _Jacobian_mult[_qp](1, 1, 1, 1);
+    sum_2x1(2) = _Jacobian_mult[_qp](0, 0, 2, 2) + _Jacobian_mult[_qp](1, 1, 2, 2);
+    sum_2x1_3 = _Jacobian_mult[_qp](0, 0, 0, 1) + _Jacobian_mult[_qp](1, 1, 0, 1);
+    if (ivar == 0 && jvar == 0)
+       val += (sum_2x1(0) * new_phi(0) + sum_2x1(2) * new_phi(2) + sum_2x1_3 * new_phi(1) / 2.0) * (_avg_grad_test[_i][0] - new_test(0));
+    else if (ivar == 0 && jvar == 1)
+       val += (sum_2x1(1) * new_phi(1) + sum_2x1_3 * new_phi(0) / 2.0) * (_avg_grad_test[_i][0] - new_test(0));
+    else if (ivar == 1 && jvar == 0)
+       val += (sum_2x1(0) * new_phi(0) + sum_2x1(2) * new_phi(2) + sum_2x1_3 * new_phi(1) / 2.0) * (_avg_grad_test[_i][1] - new_test(1));
+    else if (ivar == 1 && jvar == 1)
+       val += (sum_2x1(1) * new_phi(1) + sum_2x1_3 * new_phi(0) / 2.0) * (_avg_grad_test[_i][1] - new_test(1));
   }
 
   return val / 2.0 + first_term;

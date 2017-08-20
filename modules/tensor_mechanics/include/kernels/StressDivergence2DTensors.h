@@ -23,13 +23,14 @@ class StressDivergence2DTensors : public StressDivergenceTensors
 {
 public:
   StressDivergence2DTensors(const InputParameters & parameters);
+  
+  virtual void computeJacobian() override;
+  virtual void computeOffDiagJacobian(MooseVariableFEBase & jvar) override;
 
 protected:
   virtual void computeResidual() override;
   virtual Real computeQpResidual() override;
-  virtual void computeJacobian() override;
   virtual Real computeQpJacobian() override;
-  virtual void computeOffDiagJacobian(unsigned int jvar) override;
   virtual Real computeQpOffDiagJacobian(unsigned int jvar) override;
 
   virtual void computeAverageGradientTest() override;
