@@ -47,7 +47,13 @@ protected:
   /// overwritten for the specific geometries defined by inheriting classes
   virtual Real computeOutOfPlaneGradDispOld() = 0;
 
+  /// Variable that specifies the out of plane direction
   const unsigned int _out_of_plane_direction;
+
+  const bool _legacy_volumetric_locking_correction;
+
+  /// Variable that specifies the in plane directions
+  std::vector<unsigned int> _in_plane_direction;
 
   /// Whether to average the out of plane strain
   bool _ave_zz_strain;

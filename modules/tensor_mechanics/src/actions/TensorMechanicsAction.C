@@ -448,7 +448,7 @@ TensorMechanicsAction::actGatherActionParameters()
 std::string
 TensorMechanicsAction::getKernelType()
 {
-  if (_ndisp == 2 && _coord_system != Moose::COORD_RZ)
+  if ((_ndisp == 2 && _coord_system != Moose::COORD_RZ) || (_ndisp == 3 && _planar_formulation != PlanarFormulation::None))
   {
     return "StressDivergence2DTensors";
   }

@@ -23,7 +23,7 @@ class StressDivergence2DTensors : public StressDivergenceTensors
 {
 public:
   StressDivergence2DTensors(const InputParameters & parameters);
-  
+
   virtual void computeJacobian() override;
   virtual void computeOffDiagJacobian(MooseVariableFEBase & jvar) override;
 
@@ -41,6 +41,12 @@ protected:
   virtual Real getGradientZZPhi();
 
   Real calculateJacobian(unsigned int ivar, unsigned int jvar);
+
+  const bool _out_of_plane_strain_coupled;
+  const unsigned int _out_of_plane_strain_var;
+  const unsigned int _out_of_plane_direction;
+  const bool _legacy_volumetric_locking_correction;
+  std::vector<unsigned int> _in_plane_direction;
 
   std::vector<Real> _avg_grad_zz_test;
   std::vector<Real> _avg_grad_zz_phi;

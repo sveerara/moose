@@ -39,7 +39,7 @@ StressDivergenceRZTensors::initialSetup()
 void
 StressDivergenceRZTensors::computeAverageGradientZZTest()
 {
-  if (_first)
+  if (_first || _legacy_volumetric_locking_correction)
   {
     _avg_grad_zz_test.resize(_test.size());
     for (_i = 0; _i < _test.size(); ++_i)
@@ -56,7 +56,7 @@ StressDivergenceRZTensors::computeAverageGradientZZTest()
 void
 StressDivergenceRZTensors::computeAverageGradientZZPhi()
 {
-  if (_first)
+  if (_first || _legacy_volumetric_locking_correction)
   {
     _avg_grad_zz_phi.resize(_phi.size());
     for (_i = 0; _i < _phi.size(); ++_i)
@@ -73,7 +73,7 @@ StressDivergenceRZTensors::computeAverageGradientZZPhi()
 Real
 StressDivergenceRZTensors::getGradientZZTest()
 {
-  if (_first)
+  if (_first && !_legacy_volumetric_locking_correction)
     return _avg_grad_zz_test[_i];
   return _test[_i][_qp] / _q_point[_qp](0);
 }
@@ -81,7 +81,7 @@ StressDivergenceRZTensors::getGradientZZTest()
 Real
 StressDivergenceRZTensors::getGradientZZPhi()
 {
-  if (_first)
+  if (_first && !_legacy_volumetric_locking_correction)
     return _avg_grad_zz_phi[_j];
   return _phi[_j][_qp] / _q_point[_qp](0);
 }

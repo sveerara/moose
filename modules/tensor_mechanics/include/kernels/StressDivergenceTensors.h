@@ -72,10 +72,6 @@ protected:
   /// d(strain)/d(temperature), if computed by ComputeThermalExpansionEigenstrain
   const MaterialProperty<RankTwoTensor> * const _deigenstrain_dT;
 
-  const bool _out_of_plane_strain_coupled;
-  const unsigned int _out_of_plane_strain_var;
-  const unsigned int _out_of_plane_direction;
-
   /// Gradient of test function averaged over the element. Used in volumetric locking correction calculation.
   std::vector<std::vector<Real>> _avg_grad_test;
 

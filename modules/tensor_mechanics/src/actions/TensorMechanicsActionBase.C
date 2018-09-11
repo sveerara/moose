@@ -52,6 +52,8 @@ validParams<TensorMechanicsActionBase>()
   params.addParam<bool>(
       "volumetric_locking_correction", false, "Flag to correct volumetric locking");
   params.addParam<bool>(
+      "legacy_volumetric_locking_correction", false, "Older version of 2D volumetric locking correction to compare results against the solid mechanics version.");
+  params.addParam<bool>(
       "use_finite_deform_jacobian", false, "Jacobian for corrotational finite strain");
   params.addParam<bool>(
       "use_displaced_mesh", false, "Whether to use displaced mesh in the kernels");

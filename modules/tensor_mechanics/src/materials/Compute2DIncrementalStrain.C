@@ -21,14 +21,32 @@ validParams<Compute2DIncrementalStrain>()
   MooseEnum outOfPlaneDirection("x y z", "z");
   params.addParam<MooseEnum>(
       "out_of_plane_direction", outOfPlaneDirection, "The direction of the out-of-plane strain.");
+  params.addParam<bool>("legacy_volumetric_locking_correction", false, "Older version of 2D volumetric locking correction to compare results against the solid mechanics version");
   return params;
 }
 
 Compute2DIncrementalStrain::Compute2DIncrementalStrain(const InputParameters & parameters)
   : ComputeIncrementalSmallStrain(parameters),
     _out_of_plane_direction(getParam<MooseEnum>("out_of_plane_direction")),
+    _legacy_volumetric_locking_correction(getParam<bool>("legacy_volumetric_locking_correction")),
+    _in_plane_direction(2),
     _ave_zz_strain(false)
 {
+  if (_out_of_plane_direction == 0)
+  {
+    _in_plane_direction[0] = 1;
+    _in_plane_direction[1] = 2;
+  }
+  else if(_out_of_plane_direction == 1)
+  {
+    _in_plane_direction[0] = 0;
+    _in_plane_direction[1] = 2;
+  }
+  else if(_out_of_plane_direction == 2)
+  {
+    _in_plane_direction[0] = 0;
+    _in_plane_direction[1] = 1;
+  }
 }
 
 void
@@ -102,28 +120,37 @@ Compute2DIncrementalStrain::computeProperties()
 
     if (_volumetric_locking_correction)
       volumetric_strain +=
-          (total_strain_increment(0, 0) + total_strain_increment(1, 1)) * _JxW[_qp] * _coord[_qp];
-
-    if (_ave_zz_strain)
-      out_of_plane_strain += total_strain_increment(2, 2) * _JxW[_qp] * _coord[_qp];
+          (total_strain_increment(_in_plane_direction[0], _in_plane_direction[0]) + total_strain_increment(_in_plane_direction[1], _in_plane_direction[1])) * _JxW[_qp] * _coord[_qp];
+    else if (_legacy_volumetric_locking_correction)
+      volumetric_strain += total_strain_increment.trace() * _JxW[_qp] * _coord[_qp];
+      
+    if (_ave_zz_strain && !_legacy_volumetric_locking_correction)
+      out_of_plane_strain += total_strain_increment(_out_of_plane_direction, _out_of_plane_direction) * _JxW[_qp] * _coord[_qp];
   }
-  if (_volumetric_locking_correction)
+  if (_volumetric_locking_correction || _legacy_volumetric_locking_correction)
     volumetric_strain /= _current_elem_volume;
 
-  if (_ave_zz_strain)
+  if (_ave_zz_strain && !_legacy_volumetric_locking_correction)
     out_of_plane_strain /= _current_elem_volume;
 
   for (_qp = 0; _qp < _qrule->n_points(); ++_qp)
   {
     if (_volumetric_locking_correction)
     {
-      const Real trace_2D = _strain_increment[_qp](0, 0) + _strain_increment[_qp](1, 1);
-      _strain_increment[_qp](0, 0) += (volumetric_strain - trace_2D) / 2.0;
-      _strain_increment[_qp](1, 1) += (volumetric_strain - trace_2D) / 2.0;
+      const Real trace_2D = _strain_increment[_qp](_in_plane_direction[0], _in_plane_direction[0]) + _strain_increment[_qp](_in_plane_direction[1], _in_plane_direction[1]);
+      _strain_increment[_qp](_in_plane_direction[0], _in_plane_direction[0]) += (volumetric_strain - trace_2D) / 2.0;
+      _strain_increment[_qp](_in_plane_direction[1], _in_plane_direction[1]) += (volumetric_strain - trace_2D) / 2.0;
+    }
+    else if (_legacy_volumetric_locking_correction)
+    {
+      Real trace = _strain_increment[_qp].trace();
+      _strain_increment[_qp](0, 0) += (volumetric_strain - trace) / 3.0;
+      _strain_increment[_qp](1, 1) += (volumetric_strain - trace) / 3.0;
+      _strain_increment[_qp](2, 2) += (volumetric_strain - trace) / 3.0;
     }
 
-    if (_ave_zz_strain)
-      _strain_increment[_qp](2, 2) = out_of_plane_strain;
+    if (_ave_zz_strain && !_legacy_volumetric_locking_correction)
+      _strain_increment[_qp](_out_of_plane_direction, _out_of_plane_direction) = out_of_plane_strain;
 
     _total_strain[_qp] = _total_strain_old[_qp] + _strain_increment[_qp];
 
