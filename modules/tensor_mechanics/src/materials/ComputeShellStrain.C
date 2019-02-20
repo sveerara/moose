@@ -10,9 +10,15 @@
 #include "Assembly.h"
 #include "NonlinearSystem.h"
 #include "MooseVariable.h"
+#include "ArbitraryQuadrature.h"
+#include "ColumnMajorMatrix.h"
 
 #include "libmesh/quadrature.h"
 #include "libmesh/utility.h"
+#include "libmesh/enum_quadrature_type.h"
+#include "libmesh/fe_type.h"
+#include "libmesh/string_to_enum.h"
+#include "libmesh/quadrature_gauss.h"
 
 registerMooseObject("TensorMechanicsApp", ComputeShellStrain);
 
@@ -30,6 +36,7 @@ validParams<ComputeShellStrain>()
   params.addRequiredCoupledVar(
       "thickness",
       "Cross-section area of the beam. Can be supplied as either a number or a variable name.");
+  params.addRequiredParam<std::string>("order", "Quadrature order in out of plane direction");
   return params;
 }
 
@@ -41,19 +48,24 @@ ComputeShellStrain::ComputeShellStrain(const InputParameters & parameters)
     _disp_num(_ndisp),
     _thickness(coupledValue("thickness")),
     _strain_increment(declareProperty<std::vector<RankTwoTensor>>("strain_increment")),
-    _total_strain(declareProperty<std::vector<RankTwoTensor>>)("total_strain"),
-    _total_strain_old(declareMaterialPropertyOldByName<std::vector<RankTwoTensor>>)("total_strain"),
-    _large_strain(getParam<bool>("large_strain")),
+    _total_strain(declareProperty<std::vector<RankTwoTensor>>("total_strain")),
+    _total_strain_old(getMaterialProperty<std::vector<RankTwoTensor>>("total_strain")),
     _nonlinear_sys(_fe_problem.getNonlinearSystemBase()),
-    _soln_disp_index_0(_ndisp),
-    _soln_disp_index_1(_ndisp),
-    _soln_rot_index_0(_ndisp),
-    _soln_rot_index_1(_ndisp)
+    _soln_disp_index(4),
+    _soln_rot_index(4),
+    _soln_vector(20, 1),
+    _strain_vector(5,1),
+    _node_normal(declareProperty<RealVectorValue>("node_normal")),
+    _node_normal_old(getMaterialPropertyOldByName<RealVectorValue>("node_normal")),
+    _V1(4),
+    _V2(4),
+    _B(declareProperty<std::vector<ColumnMajorMatrix>>("B_matrix")),
+    _ge(declareProperty<std::vector<RankTwoTensor>>("ge_matrix"))
 {
   // Checking for consistency between length of the provided displacements and rotations vector
-  if (_ndisp != _nrot)
+  if (_ndisp != 3 || _nrot != 2)
     mooseError("ComputeShellStrain: The number of variables supplied in 'displacements' "
-               "and 'rotations' must match.");
+               "must be 3 and that in 'rotations' must be 2.");
 
   // fetch coupled variables and gradients (as stateful properties if necessary)
   for (unsigned int i = 0; i < _ndisp; ++i)
@@ -61,73 +73,112 @@ ComputeShellStrain::ComputeShellStrain(const InputParameters & parameters)
     MooseVariable * disp_variable = getVar("displacements", i);
     _disp_num[i] = disp_variable->number();
 
-    MooseVariable * rot_variable = getVar("rotations", i);
-    _rot_num[i] = rot_variable->number();
+    if (i < _nrot)
+    {
+      MooseVariable * rot_variable = getVar("rotations", i);
+      _rot_num[i] = rot_variable->number();
+    }
   }
-
-  for (unsigned int i = 0; i < _eigenstrain_names.size(); ++i)
-  {
-    _disp_eigenstrain[i] = &getMaterialProperty<RealVectorValue>("disp_" + _eigenstrain_names[i]);
-    _rot_eigenstrain[i] = &getMaterialProperty<RealVectorValue>("rot_" + _eigenstrain_names[i]);
-    _disp_eigenstrain_old[i] =
-        &getMaterialPropertyOld<RealVectorValue>("disp_" + _eigenstrain_names[i]);
-    _rot_eigenstrain_old[i] =
-        &getMaterialPropertyOld<RealVectorValue>("rot_" + _eigenstrain_names[i]);
-  }
+  printf("strain done \n");
 }
 
 void
 ComputeShellStrain::initQpStatefulProperties()
 {
-  _t_qrule = new ArbitraryQuadrature(1, _order);
+  printf("in strain initialization \n");
+  _t_qrule = libmesh_make_unique<QGauss>(1, Utility::string_to_enum<Order>(getParam<std::string>("order")));
   _t_points = _t_qrule->get_points();
 
+  printf("t points size:%lu\n", _t_points.size());
+  printf("t points: %e, %e, %e, %e, %e, %e \n", _t_points[0](0),_t_points[0](1), _t_points[0](2), _t_points[1](0), _t_points[1](1), _t_points[1](2));
   // quadrature points in isoparametric space
-  std::vector<Point> qp_points = _qrule->get_points(); // would be in 2D
-
-   for (unsigned int i = 0; i < qp_points.size(); ++i)
-     for (unsigned int j = 0; j < _t_points.size(); ++j)
-       _3d_points[i][j](0) = qp_point[i](0);
-       _3d_points[i][j](1) = qp_point[i](1);
-       _3d_points[i][j](2) = _t_points[i](0);
+  _2d_points = _qrule->get_points(); // would be in 2D
 
   unsigned int dim = _current_elem->dim();
-  unsigned int mesh_dim = _mesh.dimension();
   if ((dim != 2))
     mooseError("Shell element is implemented only for 2D Linear elements");
-
+  printf("done 1 \n");
   // derivatives of shape functions (dphidxi, dphideta and dphidzeta) evaluated at quadrature points (in isoparametric space).
+  FEType fe_type(Utility::string_to_enum<Order>("First"),
+  Utility::string_to_enum<FEFamily>("LAGRANGE"));
   FEBase * & fe = _subproblem.assembly(_tid).getFE(fe_type, dim);
   _dphidxi_map = fe->get_fe_map().get_dphidxi_map();
   _dphideta_map = fe->get_fe_map().get_dphideta_map();
   _phi_map = fe->get_fe_map().get_phi_map();
 
-  // initialize node normals
+  // Initialize node normals stored as material property but it is actually at the nodes.
+  // So even if number of qp points is > 4, only the first 4 values will be accesssed.
+  if (_2d_points.size() < 4)
+    mooseError("ComputeShellStrain: Please use atleast 4 quadrature points in the planar direction.");
+  printf("done 2 \n");
+//  MooseVariable * disp_variable = getVar("displacements", 0);
+//  const MooseArray<Point> & normal = disp_variable->normals();
+// Todo: figure out how to get normals for now hard code normal
+  RealVectorValue normal;
+  normal(2) = 1.0;
+  for (unsigned int k = 0; k < 4; ++k)
+  {
+    _node_normal[k] = normal;
+  }
+
+  _strain_increment[_qp].resize(_t_points.size());
+  _total_strain[_qp].resize(_t_points.size());
+  _B[_qp].resize(_t_points.size());
+  _ge[_qp].resize(_t_points.size());
+
+  _dxyz_dxi.resize(_2d_points.size());
+  _dxyz_deta.resize(_2d_points.size());
+  _dxyz_dzeta.resize(_2d_points.size());
+
+  _dxyz_dxi[_qp].resize(_t_points.size());
+  _dxyz_deta[_qp].resize(_t_points.size());
+  _dxyz_dzeta[_qp].resize(_t_points.size());
+  RankTwoTensor a;
+  ColumnMajorMatrix b(5,20);
+  RealVectorValue c;
+  printf("done 3 \n");
+  for (unsigned int t = 0; t < _t_points.size(); ++t)
+  {
+    printf("here \n");
+    _strain_increment[_qp][t] = a;
+    _total_strain[_qp][t] = a;
+    _B[_qp][t] = b;
+    _ge[_qp][t] = a;
+
+    _dxyz_dxi[_qp][t] = c;
+    _dxyz_deta[_qp][t] = c;
+    _dxyz_dzeta[_qp][t] = c;
+  }
+
+  printf("strain init done \n");
 }
 
 void
 ComputeShellStrain::computeProperties()
 {
   // calculating derivatives of shape function is physical space (dphi/dx, dphi/dy, dphi/dz) at quadrature points
-  std::vector<Node *> node;
+  // these are g_{i} in Dvorkin's paper
+  std::vector<Node *> nodes;
   for (unsigned int i = 0; i < 4; ++i)
-  node.push_back(_current_elem->get_node(i));
+  nodes.push_back(_current_elem->get_node(i));
 
-  for (unsigned int i = 0; i < _3d_points.size(); ++i)
+  for (unsigned int i = 0; i < _2d_points.size(); ++i)
   {
     for (unsigned int j = 0; j < _t_points.size(); ++j)
     {
-      for (unsinged int component = 0; component < _mesh.dimension(); ++component)
+      for (unsigned int component = 0; component < 3; ++component)
       {
         _dxyz_dxi[i][j](component) = 0.0;
-        for (unsigned int k = 0; k < node.size(); ++k)
+        for (unsigned int k = 0; k < nodes.size(); ++k)
         {
-          _dxyz_dxi[i][j](component) += _dphidxi_map[k][i] * node[k](component) + _t_points[j](0) / 2.0 * _thickness[i] * _dphidxi_map[k][i] * _node_normal_old[k][component];
-          _dxyz_deta[i][j](component) += _dphieta_map[k][i] * node[k](component) + _t_points[j](0) / 2.0 * _thickness[i] * _dphieta_map[k][i] * _node_normal_old[k][component];
-          _dxyz_dzeta[i][j](component) += _thickness[i] * _phi_map[k][i] * _node_normal_old[k][component] / 2.0;
+          _dxyz_dxi[i][j](component) += _dphidxi_map[k][i] * (*nodes[k])(component) + _t_points[j](0) / 2.0 * _thickness[i] * _dphidxi_map[k][i] * _node_normal_old[k](component);
+          _dxyz_deta[i][j](component) += _dphideta_map[k][i] * (*nodes[k])(component) + _t_points[j](0) / 2.0 * _thickness[i] * _dphideta_map[k][i] * _node_normal_old[k](component);
+          _dxyz_dzeta[i][j](component) += _thickness[i] * _phi_map[k][i] * _node_normal_old[k](component) / 2.0;
         }
       }
-      RankTwoTensor Jac;
+    }
+  }
+  /*    RankTwoTensor Jac;
       Jac(0,0) = _dxyz_dxi[i][j](0);
       Jac(0,1) = _dxyz_dxi[i][j](1);
       Jac(0,2) = _dxyz_dxi[i][j](2);
@@ -153,26 +204,30 @@ ComputeShellStrain::computeProperties()
       }
     }
   }
+ */
 
   // Fetch the incremental displacement (current - old) at the nodes
   const NumericVector<Number> & sol = *_nonlinear_sys.currentSolution();
   const NumericVector<Number> & sol_old = _nonlinear_sys.solutionOld();
+  _soln_vector.zero();
 
-  for (unsigned int j = 0; j < _nodes.size(); ++j)
+  for (unsigned int j = 0; j < nodes.size(); ++j)
   {
-    for (unsigned int i = 0; i < _ndisp.size(); ++i)
+    _soln_disp_index[j].resize(_ndisp);
+    _soln_rot_index[j].resize(_nrot);
+
+    for (unsigned int i = 0; i < _ndisp; ++i)
     {
-      _soln_disp_index[j][i] = node[j]->dof_number(_nonlinear_sys.number(), _disp_num[i], 0);
-      _disp[j](i) = sol(_soln_disp_index[j][i]) - sol_old(_soln_disp_index[j][i]);
+      _soln_disp_index[j][i] = nodes[j]->dof_number(_nonlinear_sys.number(), _disp_num[i], 0);
+      _soln_vector(j+i*nodes.size(), 0) = sol(_soln_disp_index[j][i]) - sol_old(_soln_disp_index[j][i]);
     }
 
-    for (unsigned int i = 0; i < 2; ++i)
+    for (unsigned int i = 0; i < _nrot; ++i)
     {
-      _soln_rot_index[j][i] = node[j]->dof_number(_nonlinear_sys.number(), _rot_num[i], 0);
-      _rot[j](i) = sol(_soln_rot_index[j][i]) - sol_old(_soln_rot_index[j][i]);
+      _soln_rot_index[j][i] = nodes[j]->dof_number(_nonlinear_sys.number(), _rot_num[i], 0);
+      _soln_vector(j+12+i*nodes.size(),0) = sol(_soln_rot_index[j][i]) - sol_old(_soln_rot_index[j][i]);
     }
   }
-
   // compute nodal local axis
   RealGradient x2;
   x2(1) = 1;
@@ -181,7 +236,8 @@ ComputeShellStrain::computeProperties()
 
   for (unsigned int k = 0; k < nodes.size(); ++k)
   {
-    _V1[k] = x2.cross(_node_normal_old[k]) / x2 * _node_normal_old[k];
+    _V1[k] = x2.cross(_node_normal_old[k]);
+    _V1[k] /= x2.norm() * _node_normal_old[k].norm();
 
     // If x2 is parallel to node normal, set V1 to x3
     if (MooseUtils::absoluteFuzzyEqual(_V1[k].norm(), 0.0, 1e-6))
@@ -190,6 +246,130 @@ ComputeShellStrain::computeProperties()
     _V2[k] = _node_normal_old[k].cross(_V1[k]);
   }
 
+  // compute B matrix rows correspond to [ux1, ux2, ux3, ux4, uy1, uy2, uy3, uy4, uz1, uz2 uz3, uz4, a1, a2, a3, a4, b1, b2, b3, b4]
+  for (unsigned int i = 0; i < _2d_points.size(); ++i)
+  {
+    for (unsigned int j = 0; j < _t_points.size(); ++j)
+    {
+        for (unsigned int k = 0; k < nodes.size(); ++k)
+        {
+          // corresponding to strain(0,0)
+          _B[i][j](0,k) = _dphidxi_map[k][i] * _dxyz_dxi[i][j](0);
+          _B[i][j](0,4+k) = _dphidxi_map[k][i] * _dxyz_dxi[i][j](1);
+          _B[i][j](0,8+k) = _dphidxi_map[k][i] * _dxyz_dxi[i][j](2);
+          _B[i][j](0,12+k) = _dphidxi_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (-_V2[k] * _dxyz_dxi[i][j]);
+          _B[i][j](0,16+k) = _dphidxi_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (_V1[k] * _dxyz_dxi[i][j]);
+
+          // corresponding to strain(1,1)
+          _B[i][j](1,k) = _dphideta_map[k][i] * _dxyz_deta[i][j](0);
+          _B[i][j](1,4+k) = _dphideta_map[k][i] * _dxyz_deta[i][j](1);
+          _B[i][j](1,8+k) = _dphideta_map[k][i] * _dxyz_deta[i][j](2);
+          _B[i][j](1,12+k) = _dphideta_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (-_V2[k] * _dxyz_deta[i][j]);
+          _B[i][j](1,16+k) = _dphideta_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (_V1[k] * _dxyz_deta[i][j]);
+
+          // corresponding to strain(2,2) = 0
+
+          //corresponding to strain(0,1)
+          _B[i][j](2,k) = 0.5 * (_dphideta_map[k][i] * _dxyz_dxi[i][j](0) + _dphidxi_map[k][i] * _dxyz_deta[i][j](0));
+          _B[i][j](2,4+k) = 0.5 * (_dphideta_map[k][i] * _dxyz_dxi[i][j](1) + _dphidxi_map[k][i] * _dxyz_deta[i][j](1));
+          _B[i][j](2,8+k) = 0.5 * (_dphideta_map[k][i] * _dxyz_dxi[i][j](2) + _dphidxi_map[k][i] * _dxyz_deta[i][j](2));
+          _B[i][j](2,12+k) = 0.25 * _t_points[j](0) * _thickness[i] * -_V2[k] * (_dphideta_map[k][i] * _dxyz_dxi[i][j] + _dphidxi_map[k][i] * _dxyz_deta[i][j]);
+          _B[i][j](2,16+k) = 0.25 * _t_points[j](0) * _thickness[i] * _V1[k] * (_dxyz_deta[i][j] * _dphidxi_map[k][i] + _dxyz_dxi[i][j] * _dphideta_map[k][i]);
+        }
+
+        RealVectorValue g3_A = _thickness[i] / 4.0 * (_node_normal_old[2] + _node_normal_old[3]);
+        RealVectorValue g3_C = _thickness[i] / 4.0 * (_node_normal_old[0] + _node_normal_old[1]);
+        RealVectorValue g3_B = _thickness[i] / 4.0 * (_node_normal_old[0] + _node_normal_old[3]);
+        RealVectorValue g3_D = _thickness[i] / 4.0 * (_node_normal_old[1] + _node_normal_old[2]);
+
+        RealVectorValue g1_A = 0.5 * ((*nodes[2]) - (*nodes[3])) + _t_points[j](0)/4.0 * (_node_normal_old[2] - _node_normal_old[3]);
+        RealVectorValue g1_C = 0.5 * ((*nodes[1]) - (*nodes[0])) + _t_points[j](0)/4.0 * (_node_normal_old[1] - _node_normal_old[0]);
+        RealVectorValue g2_B = 0.5 * ((*nodes[3]) - (*nodes[0])) + _t_points[j](0)/4.0 * (_node_normal_old[3] - _node_normal_old[0]);
+        RealVectorValue g2_D = 0.5 * ((*nodes[2]) - (*nodes[1])) + _t_points[j](0)/4.0 * (_node_normal_old[2] - _node_normal_old[1]);
+
+        // corresponding to strain(0,2)
+        for (unsigned int component = 0; component < 3; component ++)
+        {
+          _B[i][j](3,2+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * g3_A(component);
+          _B[i][j](3,3+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * -g3_A(component);
+          _B[i][j](3,1+ component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * g3_C(component);
+          _B[i][j](3,component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * -g3_C(component);
+        }
+        _B[i][j](3, 14) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * g1_A * -_V2[2];
+        _B[i][j](3, 18) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * g1_A * _V1[2];
+        _B[i][j](3, 15) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * g1_A * -_V2[3];
+        _B[i][j](3, 19) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * g1_A * _V1[3];
+
+        _B[i][j](3, 13) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * g1_C * -_V2[1];
+        _B[i][j](3, 17) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * g1_C * _V1[1];
+        _B[i][j](3, 12) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * g1_C * -_V2[0];
+        _B[i][j](3, 16) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * g1_C * _V1[0];
+
+        // corresponding to strain(1,2)
+        for (unsigned int component = 0; component < 3; component ++)
+        {
+          _B[i][j](4,2+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * g3_D(component);
+          _B[i][j](4,1+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * -g3_D(component);
+          _B[i][j](4,3+ component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * g3_B(component);
+          _B[i][j](4,component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * -g3_B(component);
+        }
+        _B[i][j](4, 14) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * g2_D * -_V2[2];
+        _B[i][j](4, 18) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * g2_D * _V1[2];
+        _B[i][j](4, 13) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * g2_D * -_V2[1];
+        _B[i][j](4, 17) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * g2_D * _V1[1];
+
+        _B[i][j](4, 15) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * g2_B * -_V2[3];
+        _B[i][j](4, 19) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * g2_B * _V1[3];
+        _B[i][j](4, 12) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * g2_B * -_V2[0];
+        _B[i][j](4, 16) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * g2_B * _V1[0];
+
+        // compute strain increment in covariant coordinate system using B and _soln_vector
+        _strain_vector = _B[i][j] * _soln_vector;
+        _strain_increment[i][j](0,0) = _strain_vector(0,0);
+        _strain_increment[i][j](1,1) = _strain_vector(1,0);
+        _strain_increment[i][j](0,1) = _strain_vector(2,0);
+        _strain_increment[i][j](0,2) = _strain_vector(3,0);
+        _strain_increment[i][j](1,2) = _strain_vector(4,0);
+        _strain_increment[i][j](1,0) = _strain_increment[i][j](0,1);
+        _strain_increment[i][j](2,0) = _strain_increment[i][j](0,2);
+        _strain_increment[i][j](2,1) = _strain_increment[i][j](1,2);
+        _total_strain[i][j] = _total_strain_old[i][j] + _strain_increment[i][j];
+
+        // calculate gij for elasticity tensor
+        RankTwoTensor gmn;
+        for (unsigned int component = 0; component < 3; ++component)
+        {
+          gmn(0,0) += _dxyz_dxi[i][j](component) *  _dxyz_dxi[i][j](component);
+          gmn(1,1) += _dxyz_deta[i][j](component) *  _dxyz_deta[i][j](component);
+          gmn(2,2) += _dxyz_dzeta[i][j](component) *  _dxyz_dzeta[i][j](component);
+          gmn(0,1) += _dxyz_dxi[i][j](component) *  _dxyz_deta[i][j](component);
+          gmn(0,2) += _dxyz_dxi[i][j](component) *  _dxyz_dzeta[i][j](component);
+          gmn(1,2) += _dxyz_deta[i][j](component) *  _dxyz_dzeta[i][j](component);
+        }
+        gmn(1,0) = gmn(0,1);
+        gmn(2,0) = gmn(0,2);
+        gmn(2,1) = gmn(1,2);
+
+        // calculate ge
+        RealVectorValue e3 = _dxyz_dzeta[i][j]/_dxyz_dzeta[i][j].norm();
+        RealVectorValue e1 = _dxyz_deta[i][j].cross(e3)/_dxyz_deta[i][j].norm();
+        RealVectorValue e2 = e3.cross(e1);
+
+        _ge[i][j](0,0) = (gmn * _dxyz_dxi[i][j]) * e1;
+        _ge[i][j](1,1) = (gmn * _dxyz_deta[i][j]) * e2;
+        _ge[i][j](2,2) = (gmn * _dxyz_dzeta[i][j]) * e3;
+        _ge[i][j](0,1) = (gmn * _dxyz_dxi[i][j]) * e2;
+        _ge[i][j](0,2) = (gmn * _dxyz_dxi[i][j]) * e3;
+        _ge[i][j](1,2) = (gmn * _dxyz_deta[i][j]) * e3;
+        _ge[i][j](1,0) = (gmn * _dxyz_deta[i][j]) * e1;
+        _ge[i][j](2,0) = (gmn * _dxyz_dzeta[i][j]) * e1;
+        _ge[i][j](2,1) = (gmn * _dxyz_dzeta[i][j]) * e2;
+    }
+  }
+}
+
+
+/* strain calc in covariant system without using B
   // compute strain increment in covariant coordinate system
   for (unsigned int i = 0; i < _3d_points.size(); ++i)
   {
@@ -273,7 +453,7 @@ ComputeShellStrain::computeProperties()
       _ge[i][j](2,1) = (gmn * _dxyz_dzeta[i][j]) * e2;
     }
   }
-
+*/
 
   /* Global coordinate strain
   // compute du/dx, du/dy and du/dz at qps for computing strain
@@ -329,5 +509,5 @@ ComputeShellStrain::computeProperties()
       _strain[i][j](2, 0) = avg_strain_0_2;
       _strain[i][j](2, 1) = avg_strain_1_2;
     }
-  } */
-}
+  }
+} */

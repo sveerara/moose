@@ -8,6 +8,9 @@
 //* https://www.gnu.org/licenses/lgpl-2.1.html
 
 #include "ComputeShellStress.h"
+#include "RankTwoTensor.h"
+#include "RankFourTensor.h"
+#include "ComputeIsotropicElasticityTensorShell.h"
 
 registerMooseObject("TensorMechanicsApp", ComputeShellStress);
 
@@ -15,37 +18,40 @@ template <>
 InputParameters
 validParams<ComputeShellStress>()
 {
-  InputParameters params = validParams<ComputeStressBase>();
+  InputParameters params = validParams<Material>();
   params.addClassDescription("Compute stress using elasticity for finite strains");
   return params;
 }
 
 ComputeShellStress::ComputeShellStress(
     const InputParameters & parameters)
-  : ComputeStressBase(parameters),
-    GuaranteeConsumer(this),
-    _strain_increment(getMaterialPropertyByName<RankTwoTensor>(_base_name + "strain_increment")),
-    _rotation_increment(
-        getMaterialPropertyByName<RankTwoTensor>(_base_name + "rotation_increment")),
-    _stress_old(getMaterialPropertyOldByName<RankTwoTensor>(_base_name + "stress")),
-    _elastic_strain_old(getMaterialPropertyOldByName<RankTwoTensor>(_base_name + "elastic_strain"))
+  : Material(parameters),
+    _strain_increment(getMaterialPropertyByName<std::vector<RankTwoTensor>>( "strain_increment")),
+    _stress(declareProperty<std::vector<RankTwoTensor>>("stress")),
+    _stress_old(getMaterialPropertyOldByName<std::vector<RankTwoTensor>>("stress")),
+    _elasticity_tensor(getMaterialProperty<std::vector<RankFourTensor>>("elasticity_tensor"))
 {
+  printf("stress done \n");
 }
 
 void
-ComputeShellStress::initialSetup()
+ComputeShellStress::initQpStatefulProperties()
 {
-  if (!hasGuaranteedMaterialProperty(_elasticity_tensor_name, Guarantee::ISOTROPIC))
-    mooseError("ComputeShellStress can only be used with elasticity tensor materials "
-               "that guarantee isotropic tensors.");
+  printf("in stress init \n");
+  // initialize stress tensor to zero
+  _stress[_qp].resize(_strain_increment[_qp].size());
+  RankTwoTensor a;
+  for (unsigned int i = 0; i < _strain_increment[_qp].size(); ++i)
+    _stress[_qp][i] = a;
+
+  printf("stress init done \n");
 }
 
 void
-ComputeShellStress::computeQpStress()
+ComputeShellStress::computeQpProperties()
 {
-  for (unsigned int t = 0; t < _t_points.size(); ++t)
-    _stress[_qp][t] = _elasticity_tensor[_qp][t] * _total_strain[_qp][t];
-
-  // Compute dstress_dstrain
-  _Jacobian_mult[_qp] = (_elasticity_tensor[_qp][0] + _elasticity_tensor[_qp][1]); // This is NOT the exact jacobian
+  for (unsigned int i = 0; i < _strain_increment[_qp].size(); ++i)
+  {
+    _stress[_qp][i] = _stress_old[_qp][i] + _elasticity_tensor[_qp][i] * _strain_increment[_qp][i];
+  }
 }
