@@ -34,7 +34,7 @@ ComputeIsotropicElasticityTensorShell::ComputeIsotropicElasticityTensorShell(
   _Cijkl.fillSymmetricIsotropicEandNu(_youngs_modulus, _poissons_ratio);
 
   // correction for plane stress
-  _Cijkl(0,0,0,0) = _youngs_modulus / (1-_poissons_ratio * _poissons_ratio);
+  _Cijkl(0,0,0,0) = _youngs_modulus / (1.0-_poissons_ratio * _poissons_ratio);
   _Cijkl(1,1,1,1) = _Cijkl(0,0,0,0);
   _Cijkl(0,0,1,1) = _Cijkl(0,0,0,0) * _poissons_ratio;
   _Cijkl(1,1,0,0) = _Cijkl(0,0,1,1);
@@ -43,7 +43,8 @@ ComputeIsotropicElasticityTensorShell::ComputeIsotropicElasticityTensorShell(
   _Cijkl(2,2,2,2) = 0.0;
   _Cijkl(2,2,0,0) = 0.0;
   _Cijkl(2,2,1,1) = 0.0;
-
+  printf("elasticity tensor \n");
+  _Cijkl.print();
   printf("elasticity done \n");
 }
 
@@ -66,5 +67,20 @@ ComputeIsotropicElasticityTensorShell::computeQpProperties()
               for (unsigned int n = 0; n < 3; ++n)
                 for (unsigned int o = 0; o < 3; ++o)
                   for (unsigned int p = 0; p < 3; ++p)
-                    _elasticity_tensor[_qp][t](i,j,k,l) += _ge[_qp][_t](i, m) * _ge[_qp][_t](j, n) * _ge[_qp][_t](k, o) * _ge[_qp][_t](l, p) * _Cijkl(m,n,o,p); 
+                  {
+                //    if (i == m && j == n && k == o && l == p)
+                //       printf(" all terms, i, j, k ,l, m, n, o, p: %u, %u, %u, %u, %u, %u, %u, %u,%e, %e, %e, %e, %e \n", i, m, j, n, k, o, l, p, _ge[_qp][t](i, m), _ge[_qp][t](j, n), _ge[_qp][t](k, o), _ge[_qp][t](l, p), _Cijkl(m,n,o,p));
+                    _elasticity_tensor[_qp][t](i,j,k,l) += _ge[_qp][t](i, m) * _ge[_qp][t](j, n) * _ge[_qp][t](k, o) * _ge[_qp][t](l, p) * _Cijkl(m,n,o,p);
+
+                  //  _elasticity_tensor[_qp][t](i,j,k,l) = _Cijkl(i,j,k,l);
+
+                  }
+
+/*   for (unsigned i = 0; i < _ge[_qp].size(); ++i)
+   {
+     printf("ge, _qp, t :%u, %u \n", _qp, i);
+     _ge[_qp][i].print();
+     printf("edited elasticity, _qp, t: %u, %u \n", _qp, i);
+     _elasticity_tensor[_qp][i].print();
+   }*/
 }

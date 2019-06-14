@@ -53,5 +53,7 @@ ComputeShellStress::computeQpProperties()
   for (unsigned int i = 0; i < _strain_increment[_qp].size(); ++i)
   {
     _stress[_qp][i] = _stress_old[_qp][i] + _elasticity_tensor[_qp][i] * _strain_increment[_qp][i];
+  //  printf("stress , qp, t: %u, %u \n", _qp, i);
+  //  _stress[_qp][i].print();
   }
 }

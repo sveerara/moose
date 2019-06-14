@@ -89,28 +89,42 @@ ComputeShellStrain::initQpStatefulProperties()
   _t_qrule = libmesh_make_unique<QGauss>(1, Utility::string_to_enum<Order>(getParam<std::string>("order")));
   _t_points = _t_qrule->get_points();
 
-  printf("t points size:%lu\n", _t_points.size());
-  printf("t points: %e, %e, %e, %e, %e, %e \n", _t_points[0](0),_t_points[0](1), _t_points[0](2), _t_points[1](0), _t_points[1](1), _t_points[1](2));
   // quadrature points in isoparametric space
   _2d_points = _qrule->get_points(); // would be in 2D
 
   unsigned int dim = _current_elem->dim();
   if ((dim != 2))
     mooseError("Shell element is implemented only for 2D Linear elements");
-  printf("done 1 \n");
+
   // derivatives of shape functions (dphidxi, dphideta and dphidzeta) evaluated at quadrature points (in isoparametric space).
   FEType fe_type(Utility::string_to_enum<Order>("First"),
   Utility::string_to_enum<FEFamily>("LAGRANGE"));
-  FEBase * & fe = _subproblem.assembly(_tid).getFE(fe_type, dim);
+  auto & fe = _subproblem.assembly(_tid).getFE(fe_type, dim);
   _dphidxi_map = fe->get_fe_map().get_dphidxi_map();
   _dphideta_map = fe->get_fe_map().get_dphideta_map();
   _phi_map = fe->get_fe_map().get_phi_map();
+
+  printf("dphidxi map, dphideta_map, phi_map : %lu, %lu, %lu \n", _dphidxi_map.size(), _dphideta_map.size(), _phi_map.size());
+  printf("dphidxi 0: %e, %e, %e, %e \n", _dphidxi_map[0][0], _dphidxi_map[0][1], _dphidxi_map[0][2], _dphidxi_map[0][3]);
+  printf("dphidxi 1: %e, %e, %e, %e \n", _dphidxi_map[1][0], _dphidxi_map[1][1], _dphidxi_map[1][2], _dphidxi_map[1][3]);
+  printf("dphidxi 2: %e, %e, %e, %e \n", _dphidxi_map[2][0], _dphidxi_map[2][1], _dphidxi_map[2][2], _dphidxi_map[2][3]);
+  printf("dphidxi 3: %e, %e, %e, %e \n", _dphidxi_map[3][0], _dphidxi_map[3][1], _dphidxi_map[3][2], _dphidxi_map[3][3]);
+
+  printf("dphideta 0: %e, %e, %e, %e \n", _dphideta_map[0][0], _dphideta_map[0][1], _dphideta_map[0][2], _dphideta_map[0][3]);
+  printf("dphideta 1: %e, %e, %e, %e \n", _dphideta_map[1][0], _dphideta_map[1][1], _dphideta_map[1][2], _dphideta_map[1][3]);
+  printf("dphideta 2: %e, %e, %e, %e \n", _dphideta_map[2][0], _dphideta_map[2][1], _dphideta_map[2][2], _dphideta_map[2][3]);
+  printf("dphideta 3: %e, %e, %e, %e \n", _dphideta_map[3][0], _dphideta_map[3][1], _dphideta_map[3][2], _dphideta_map[3][3]);
+
+  printf("phi 0: %e, %e, %e, %e \n", _phi_map[0][0], _phi_map[0][1], _phi_map[0][2], _phi_map[0][3]);
+  printf("phi 1: %e, %e, %e, %e \n", _phi_map[1][0], _phi_map[1][1], _phi_map[1][2], _phi_map[1][3]);
+  printf("phi 2: %e, %e, %e, %e \n", _phi_map[2][0], _phi_map[2][1], _phi_map[2][2], _phi_map[2][3]);
+  printf("phi 3: %e, %e, %e, %e \n", _phi_map[3][0], _phi_map[3][1], _phi_map[3][2], _phi_map[3][3]);
 
   // Initialize node normals stored as material property but it is actually at the nodes.
   // So even if number of qp points is > 4, only the first 4 values will be accesssed.
   if (_2d_points.size() < 4)
     mooseError("ComputeShellStrain: Please use atleast 4 quadrature points in the planar direction.");
-  printf("done 2 \n");
+
 //  MooseVariable * disp_variable = getVar("displacements", 0);
 //  const MooseArray<Point> & normal = disp_variable->normals();
 // Todo: figure out how to get normals for now hard code normal
@@ -158,9 +172,14 @@ ComputeShellStrain::computeProperties()
 {
   // calculating derivatives of shape function is physical space (dphi/dx, dphi/dy, dphi/dz) at quadrature points
   // these are g_{i} in Dvorkin's paper
-  std::vector<Node *> nodes;
+  std::vector<const Node *> nodes;
   for (unsigned int i = 0; i < 4; ++i)
-  nodes.push_back(_current_elem->get_node(i));
+    nodes.push_back(_current_elem->node_ptr(i));
+
+  printf("nodes 0: %e %e \n", (*nodes[0])(0), (*nodes[0])(1));
+  printf("nodes 1: %e %e \n", (*nodes[1])(0), (*nodes[1])(1));
+  printf("nodes 2: %e %e \n", (*nodes[2])(0), (*nodes[2])(1));
+  printf("nodes 3: %e %e \n", (*nodes[3])(0), (*nodes[3])(1));
 
   for (unsigned int i = 0; i < _2d_points.size(); ++i)
   {
@@ -169,6 +188,8 @@ ComputeShellStrain::computeProperties()
       for (unsigned int component = 0; component < 3; ++component)
       {
         _dxyz_dxi[i][j](component) = 0.0;
+        _dxyz_deta[i][j](component) = 0.0;
+        _dxyz_dzeta[i][j](component) = 0.0;
         for (unsigned int k = 0; k < nodes.size(); ++k)
         {
           _dxyz_dxi[i][j](component) += _dphidxi_map[k][i] * (*nodes[k])(component) + _t_points[j](0) / 2.0 * _thickness[i] * _dphidxi_map[k][i] * _node_normal_old[k](component);
@@ -176,6 +197,9 @@ ComputeShellStrain::computeProperties()
           _dxyz_dzeta[i][j](component) += _thickness[i] * _phi_map[k][i] * _node_normal_old[k](component) / 2.0;
         }
       }
+  /*    printf("dxyz_dxi: i, j, x, y, z: %u, %u, %e, %e, %e\n", i, j, _dxyz_dxi[i][j](0),_dxyz_dxi[i][j](1), _dxyz_dxi[i][j](2));
+      printf("dxyz_deta: i, j, x, y, z: %u, %u, %e, %e, %e\n", i, j, _dxyz_deta[i][j](0),_dxyz_deta[i][j](1), _dxyz_deta[i][j](2));
+      printf("dxyz_dzeta: i, j, x, y, z: %u, %u, %e, %e, %e\n", i, j, _dxyz_dzeta[i][j](0),_dxyz_dzeta[i][j](1), _dxyz_dzeta[i][j](2)); */
     }
   }
   /*    RankTwoTensor Jac;
@@ -282,11 +306,16 @@ ComputeShellStrain::computeProperties()
         RealVectorValue g3_B = _thickness[i] / 4.0 * (_node_normal_old[0] + _node_normal_old[3]);
         RealVectorValue g3_D = _thickness[i] / 4.0 * (_node_normal_old[1] + _node_normal_old[2]);
 
-        RealVectorValue g1_A = 0.5 * ((*nodes[2]) - (*nodes[3])) + _t_points[j](0)/4.0 * (_node_normal_old[2] - _node_normal_old[3]);
-        RealVectorValue g1_C = 0.5 * ((*nodes[1]) - (*nodes[0])) + _t_points[j](0)/4.0 * (_node_normal_old[1] - _node_normal_old[0]);
-        RealVectorValue g2_B = 0.5 * ((*nodes[3]) - (*nodes[0])) + _t_points[j](0)/4.0 * (_node_normal_old[3] - _node_normal_old[0]);
-        RealVectorValue g2_D = 0.5 * ((*nodes[2]) - (*nodes[1])) + _t_points[j](0)/4.0 * (_node_normal_old[2] - _node_normal_old[1]);
+        RealVectorValue g1_A = 0.5 * ((*nodes[2]) - (*nodes[3])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[2] - _node_normal_old[3]);
+        RealVectorValue g1_C = 0.5 * ((*nodes[1]) - (*nodes[0])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[1] - _node_normal_old[0]);
+        RealVectorValue g2_B = 0.5 * ((*nodes[3]) - (*nodes[0])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[3] - _node_normal_old[0]);
+        RealVectorValue g2_D = 0.5 * ((*nodes[2]) - (*nodes[1])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[2] - _node_normal_old[1]);
 
+      /*  printf("g1_A:%e, %e, %e \n", g1_A(0), g1_A(1), g1_A(2));
+        printf("g1_C:%e, %e, %e \n", g1_C(0), g1_C(1), g1_C(2));
+        printf("g2_B:%e, %e, %e \n", g2_B(0), g2_B(1), g2_B(2));
+        printf("g2_D:%e, %e, %e \n", g2_D(0), g2_D(1), g2_D(2));
+*/
         // corresponding to strain(0,2)
         for (unsigned int component = 0; component < 3; component ++)
         {
@@ -334,7 +363,7 @@ ComputeShellStrain::computeProperties()
         _strain_increment[i][j](2,0) = _strain_increment[i][j](0,2);
         _strain_increment[i][j](2,1) = _strain_increment[i][j](1,2);
         _total_strain[i][j] = _total_strain_old[i][j] + _strain_increment[i][j];
-
+        printf("strain_vector: %e, %e, %e, %e, %e \n", _strain_vector(0,0), _strain_vector(1,0), _strain_vector(2,0), _strain_vector(3,0), _strain_vector(4,0));
         // calculate gij for elasticity tensor
         RankTwoTensor gmn;
         for (unsigned int component = 0; component < 3; ++component)
@@ -350,20 +379,26 @@ ComputeShellStrain::computeProperties()
         gmn(2,0) = gmn(0,2);
         gmn(2,1) = gmn(1,2);
 
+        RankTwoTensor gmninv = gmn.inverse();
+        Real det = gmn.det();
+        printf("det of g : %e \n", std::sqrt(det));
         // calculate ge
         RealVectorValue e3 = _dxyz_dzeta[i][j]/_dxyz_dzeta[i][j].norm();
         RealVectorValue e1 = _dxyz_deta[i][j].cross(e3)/_dxyz_deta[i][j].norm();
         RealVectorValue e2 = e3.cross(e1);
 
-        _ge[i][j](0,0) = (gmn * _dxyz_dxi[i][j]) * e1;
-        _ge[i][j](1,1) = (gmn * _dxyz_deta[i][j]) * e2;
-        _ge[i][j](2,2) = (gmn * _dxyz_dzeta[i][j]) * e3;
-        _ge[i][j](0,1) = (gmn * _dxyz_dxi[i][j]) * e2;
-        _ge[i][j](0,2) = (gmn * _dxyz_dxi[i][j]) * e3;
-        _ge[i][j](1,2) = (gmn * _dxyz_deta[i][j]) * e3;
-        _ge[i][j](1,0) = (gmn * _dxyz_deta[i][j]) * e1;
-        _ge[i][j](2,0) = (gmn * _dxyz_dzeta[i][j]) * e1;
-        _ge[i][j](2,1) = (gmn * _dxyz_dzeta[i][j]) * e2;
+        _ge[i][j](0,0) = (gmninv * _dxyz_dxi[i][j]) * e1;
+        _ge[i][j](0,1) = (gmninv * _dxyz_dxi[i][j]) * e2;
+        _ge[i][j](0,2) = (gmninv * _dxyz_dxi[i][j]) * e3;
+        _ge[i][j](1,0) = (gmninv * _dxyz_deta[i][j]) * e1;
+        _ge[i][j](1,1) = (gmninv * _dxyz_deta[i][j]) * e2;
+        _ge[i][j](1,2) = (gmninv * _dxyz_deta[i][j]) * e3;
+        _ge[i][j](2,0) = (gmninv * _dxyz_dzeta[i][j]) * e1;
+        _ge[i][j](2,1) = (gmninv * _dxyz_dzeta[i][j]) * e2;
+        _ge[i][j](2,2) = (gmninv * _dxyz_dzeta[i][j]) * e3;
+
+        printf("ge \n");
+        _ge[i][j].print();
     }
   }
 }

@@ -48,7 +48,6 @@ StressDivergenceShell::StressDivergenceShell(const InputParameters & parameters)
 {
   _t_qrule = libmesh_make_unique<QGauss>(1, Utility::string_to_enum<Order>(getParam<std::string>("order")));
   _t_weights = _t_qrule->get_weights();
-
   printf("stress div done \n");
 }
 
@@ -65,10 +64,12 @@ StressDivergenceShell::computeResidual()
   for (_i = 0; _i < _test.size(); ++_i)
     for (_qp = 0; _qp < _qrule->n_points(); ++_qp)
       for (_qp_z = 0; _qp_z < _stress[_qp].size(); ++_qp_z)
-        _local_re(_i) += _q_weights[_qp] * _t_weights[_qp_z] * computeQpResidual();
+      {
+         _local_re(_i) += _q_weights[_qp] * _t_weights[_qp_z] * computeQpResidual() * 0.125;
+      }
 
   re += _local_re;
-
+  printf("component, re: %u, %e, %e, %e, %e \n", _component, _local_re(0), _local_re(1), _local_re(2), _local_re(3));
   if (_has_save_in)
   {
     Threads::spin_mutex::scoped_lock lock(Threads::spin_mtx);
