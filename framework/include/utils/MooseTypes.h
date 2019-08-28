@@ -119,6 +119,10 @@ class RankFourTensorTempl;
 typedef RankFourTensorTempl<Real> RankFourTensor;
 typedef RankFourTensorTempl<DualReal> DualRankFourTensor;
 template <typename>
+class ColumnMajorMatrixTempl;
+typedef ColumnMajorMatrixTempl<Real> ColumnMajorMatrix;
+typedef ColumnMajorMatrixTempl<DualReal> DualColumnMajorMatrix;
+template <typename>
 class MaterialProperty;
 template <typename>
 class ADMaterialPropertyObject;
@@ -176,6 +180,7 @@ struct DecrementRank<Eigen::Matrix<Real, Eigen::Dynamic, LIBMESH_DIM>>
 #define ADRealTensorValue typename RealTensorValueType<compute_stage>::type
 #define ADRankTwoTensor typename RankTwoTensorType<compute_stage>::type
 #define ADRankFourTensor typename RankFourTensorType<compute_stage>::type
+#define ADColumnMajorMatrix typename ColumnMajorMatrixType<compute_stage>::type
 
 /**
  * MOOSE typedefs
@@ -416,6 +421,16 @@ template <>
 struct RankFourTensorType<JACOBIAN>
 {
   typedef DualRankFourTensor type;
+};
+template <ComputeStage compute_stage>
+struct ColumnMajorMatrixType
+{
+  typedef ColumnMajorMatrix type;
+};
+template <>
+struct ColumnMajorMatrixType<JACOBIAN>
+{
+  typedef DualColumnMajorMatrix type;
 };
 
 template <typename mat_prop_type, ComputeStage compute_stage>

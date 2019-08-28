@@ -43,9 +43,15 @@ protected:
   virtual Real computeQpResidual() override;
 
   const unsigned int _component;
+  const bool _large_strain;
 
   const MaterialProperty<std::vector<RankTwoTensor>> & _stress;
+  const MaterialProperty<std::vector<RankTwoTensor>> & _stress_old;
   const MaterialProperty<std::vector<ColumnMajorMatrix>> & _B_mat;
+  const MaterialProperty<std::vector<ColumnMajorMatrix>> & _BNL_new;
+  const MaterialProperty<std::vector<ColumnMajorMatrix>> * _B_NL;
+  const MaterialProperty<std::vector<Real>> & _Jmap;
+  const MaterialProperty<std::vector<Real>> & _soln_vector;
 
   /// Quadrature rule in the out of plane direction
   std::unique_ptr<QGauss> _t_qrule;

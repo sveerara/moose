@@ -792,3 +792,4 @@ ColumnMajorMatrixTempl<T>::operator!=(const ColumnMajorMatrixTempl<T> & rhs) con
 }
 
 typedef ColumnMajorMatrixTempl<Real> ColumnMajorMatrix;
+typedef ColumnMajorMatrixTempl<DualReal> DualColumnMajorMatrix;

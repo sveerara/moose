@@ -36,6 +36,7 @@ public:
 protected:
   virtual void computeProperties() override;
   virtual void initQpStatefulProperties() override;
+  virtual void computeLargeStrain();
 
   /// Number of coupled rotational variables
   unsigned int _nrot;
@@ -51,6 +52,9 @@ protected:
 
   /// Coupled variable for the shell thickness
   const VariableValue & _thickness;
+
+  /// Flag to compute large strains
+  const bool _large_strain;
 
   /// Strain increment in the covariant coordinate system
   MaterialProperty<std::vector<RankTwoTensor>> & _strain_increment;
@@ -74,6 +78,8 @@ protected:
   ColumnMajorMatrix _soln_vector;
 
   ColumnMajorMatrix _strain_vector;
+
+  std::vector<const Node *> _nodes;
 
   /// Material property storing the normal to the element at the 4 nodes. Stored as a material property for convinience.
   MaterialProperty<RealVectorValue> & _node_normal;
@@ -116,9 +122,20 @@ protected:
 
   /// B_matrix for small strain
   MaterialProperty<std::vector<ColumnMajorMatrix>> & _B;
+  MaterialProperty<std::vector<ColumnMajorMatrix>> & _BNL_new;
+
+  MaterialProperty<std::vector<ColumnMajorMatrix>> * _BNL;
+  const MaterialProperty<std::vector<ColumnMajorMatrix>> * _BNL_old;
+
 
   /// ge matrix for elasticity tensor conversion
   MaterialProperty<std::vector<RankTwoTensor>> & _ge;
+
+  /// Material property containing jacobian of transformation
+  MaterialProperty<std::vector<Real>> & _Jmap;
+
+  MaterialProperty<std::vector<Real>> & _soln_vector_prop;
+
 };
 
 #endif // COMPUTESHELLSTRAIN_H

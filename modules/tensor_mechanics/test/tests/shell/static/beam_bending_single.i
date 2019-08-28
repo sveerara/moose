@@ -2,7 +2,7 @@
   type = GeneratedMesh
   dim = 2
   nx = 1
-  ny = 1
+  ny = 10
   xmin = 0.0
   xmax = 1.0
   ymin = 0.0
@@ -75,10 +75,20 @@
 
 [NodalKernels]
   [./force_y2]
+#    type = UserForcingFunctionNodalKernel
     type = ConstantRate
     variable = disp_z
     boundary = top
-    rate = 0.5
+    rate = 2.62
+#    function = force_y
+  [../]
+[]
+
+[Functions]
+  [./force_y]
+    type = PiecewiseLinear
+    x = '0.0 1.0 3.0'
+    y = '0.0 2.62 2.62'
   [../]
 []
 
@@ -97,9 +107,9 @@
   nl_rel_tol = 1e-10
   nl_abs_tol = 5e-4
 
-  dt = 1
-  dtmin = 1
-  end_time = 2
+  dt = 0.1
+  dtmin = 0.1
+  end_time = 3.0
 []
 
 [Kernels]
@@ -162,15 +172,25 @@
 []
 
 [Postprocessors]
-  [./disp_y1]
+  [./disp_z1]
     type = PointValue
     point = '0.0 10.0 0.0'
     variable = disp_z
   [../]
-  [./disp_y2]
+  [./disp_z2]
     type = PointValue
     point = '1.0 10.0 0.0'
     variable = disp_z
+  [../]
+  [./disp_y1]
+    type = PointValue
+    point = '0.0 10.0 0.0'
+    variable = rot_x
+  [../]
+  [./disp_y2]
+    type = PointValue
+    point = '1.0 10.0 0.0'
+    variable = disp_y
   [../]
 []
 
