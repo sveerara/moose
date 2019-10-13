@@ -26,6 +26,7 @@
 #include "Eigen/Core"
 #include "libmesh/restore_warnings.h"
 #include "libmesh/tensor_tools.h"
+#include "libmesh/dense_matrix.h"
 
 #include <string>
 #include <vector>
@@ -119,10 +120,6 @@ class RankFourTensorTempl;
 typedef RankFourTensorTempl<Real> RankFourTensor;
 typedef RankFourTensorTempl<DualReal> DualRankFourTensor;
 template <typename>
-class ColumnMajorMatrixTempl;
-typedef ColumnMajorMatrixTempl<Real> ColumnMajorMatrix;
-typedef ColumnMajorMatrixTempl<DualReal> DualColumnMajorMatrix;
-template <typename>
 class MaterialProperty;
 template <typename>
 class ADMaterialPropertyObject;
@@ -180,7 +177,8 @@ struct DecrementRank<Eigen::Matrix<Real, Eigen::Dynamic, LIBMESH_DIM>>
 #define ADRealTensorValue typename RealTensorValueType<compute_stage>::type
 #define ADRankTwoTensor typename RankTwoTensorType<compute_stage>::type
 #define ADRankFourTensor typename RankFourTensorType<compute_stage>::type
-#define ADColumnMajorMatrix typename ColumnMajorMatrixType<compute_stage>::type
+#define ADDenseMatrix typename DenseMatrixType<compute_stage>::type
+#define ADDenseVector typename DenseVectorType<compute_stage>::type
 
 /**
  * MOOSE typedefs
@@ -423,14 +421,24 @@ struct RankFourTensorType<JACOBIAN>
   typedef DualRankFourTensor type;
 };
 template <ComputeStage compute_stage>
-struct ColumnMajorMatrixType
+struct DenseMatrixType
 {
-  typedef ColumnMajorMatrix type;
+  typedef DenseMatrix<Real> type;
 };
 template <>
-struct ColumnMajorMatrixType<JACOBIAN>
+struct DenseMatrixType<JACOBIAN>
 {
-  typedef DualColumnMajorMatrix type;
+  typedef DenseMatrix<DualReal> type;
+};
+template <ComputeStage compute_stage>
+struct DenseVectorType
+{
+  typedef DenseVector<Real> type;
+};
+template <>
+struct DenseVectorType<JACOBIAN>
+{
+  typedef DenseVector<DualReal> type;
 };
 
 template <typename mat_prop_type, ComputeStage compute_stage>
