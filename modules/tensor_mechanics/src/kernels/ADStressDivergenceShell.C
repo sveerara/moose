@@ -56,7 +56,7 @@ ADStressDivergenceShell<compute_stage>::ADStressDivergenceShell(const InputParam
   for (unsigned int i = 0; i < _t_weights.size(); ++i)
   {
     _stress[i] = &getADMaterialProperty<RankTwoTensor>("stress_t_points_" + std::to_string(i));
-    _stress_old[i] = &getADMaterialProperty<RankTwoTensor>("stress_t_points_" + std::to_string(i));
+    _stress_old[i] = &getMaterialPropertyOldByName<RankTwoTensor>("stress_t_points_" + std::to_string(i));
     _B_mat[i] = &getADMaterialProperty<DenseMatrix<Real>>("B_matrix_t_points_" + std::to_string(i));
     if (_large_strain)
       _B_NL[i] = &getADMaterialProperty<DenseMatrix<Real>>("BNL_matrix_t_points_" + std::to_string(i));
@@ -84,10 +84,9 @@ ADStressDivergenceShell<compute_stage>::computeQpResidual()
       ADReal S02 = (*_stress_old[_qp_z])[_qp](0,2);
       ADReal S12 = (*_stress_old[_qp_z])[_qp](1,2);
       residual1 += (S00 * (*_B_NL[_qp_z])[_qp](0,_i + _component*4) + S11 * (*_B_NL[_qp_z])[_qp](1,_i + _component*4) + 2.0 * S01 * (*_B_NL[_qp_z])[_qp](2,_i + _component*4) +  2.0 * S02 * (*_B_NL[_qp_z])[_qp](3,_i + _component*4) + 2.0 * S12 * (*_B_NL[_qp_z])[_qp](4,_i + _component*4));
-    } 
+    }
 
     residual += residual1 * (*_Jmap[_qp_z])[_qp] * _q_weights[_qp] * _t_weights[_qp_z] /(_ad_JxW[_qp] * _ad_coord[_qp]);
-    printf("residual: %e \n", MetaPhysicL::raw_value(residual));
     //residual *= (*_Jmap[_qp_z])[_qp] *  _q_weights[_qp];
 
   }

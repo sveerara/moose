@@ -45,7 +45,7 @@ protected:
   const bool _large_strain;
 
   std::vector<const ADMaterialProperty(RankTwoTensor) *>  _stress;
-  std::vector<const ADMaterialProperty(RankTwoTensor) *> _stress_old;
+  std::vector<const MaterialProperty<RankTwoTensor> *> _stress_old;
   std::vector<const ADMaterialProperty(DenseMatrix<Real>) *> _B_mat;
   std::vector<const ADMaterialProperty(DenseMatrix<Real>) *> _B_NL;
   std::vector<const ADMaterialProperty(Real) *> _Jmap;

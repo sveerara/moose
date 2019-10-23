@@ -12,7 +12,43 @@
 #include "ADMaterial.h"
 #include "libmesh/dense_matrix.h"
 
-#define usingComputeIncrementalShellStrainMembers usingMaterialMembers;
+#define usingComputeIncrementalShellStrainMembers usingMaterialMembers; \
+using ADComputeIncrementalShellStrain<compute_stage>::_t_points; \
+using ADComputeIncrementalShellStrain<compute_stage>::_2d_points; \
+using ADComputeIncrementalShellStrain<compute_stage>::_nodes; \
+using ADComputeIncrementalShellStrain<compute_stage>::_ge; \
+using ADComputeIncrementalShellStrain<compute_stage>::_ge_old; \
+using ADComputeIncrementalShellStrain<compute_stage>::_Jmap; \
+using ADComputeIncrementalShellStrain<compute_stage>::_Jmap_old; \
+using ADComputeIncrementalShellStrain<compute_stage>::_node_normal; \
+using ADComputeIncrementalShellStrain<compute_stage>::_node_normal_old; \
+using ADComputeIncrementalShellStrain<compute_stage>::_strain_vector; \
+using ADComputeIncrementalShellStrain<compute_stage>::_soln_vector; \
+using ADComputeIncrementalShellStrain<compute_stage>::_B; \
+using ADComputeIncrementalShellStrain<compute_stage>::_strain_increment; \
+using ADComputeIncrementalShellStrain<compute_stage>::_total_strain; \
+using ADComputeIncrementalShellStrain<compute_stage>::_total_strain_old; \
+using ADComputeIncrementalShellStrain<compute_stage>::_V1; \
+using ADComputeIncrementalShellStrain<compute_stage>::_V2; \
+using ADComputeIncrementalShellStrain<compute_stage>::_dxyz_dxi; \
+using ADComputeIncrementalShellStrain<compute_stage>::_dxyz_deta; \
+using ADComputeIncrementalShellStrain<compute_stage>::_dxyz_dzeta; \
+using ADComputeIncrementalShellStrain<compute_stage>::_thickness; \
+using ADComputeIncrementalShellStrain<compute_stage>::_dphidxi_map; \
+using ADComputeIncrementalShellStrain<compute_stage>::_dphideta_map; \
+using ADComputeIncrementalShellStrain<compute_stage>::_phi_map; \
+using ADComputeIncrementalShellStrain<compute_stage>::_g1_A; \
+using ADComputeIncrementalShellStrain<compute_stage>::_g1_C; \
+using ADComputeIncrementalShellStrain<compute_stage>::_g2_B; \
+using ADComputeIncrementalShellStrain<compute_stage>::_g2_D; \
+using ADComputeIncrementalShellStrain<compute_stage>::_soln_disp_index; \
+using ADComputeIncrementalShellStrain<compute_stage>::_soln_rot_index; \
+using ADComputeIncrementalShellStrain<compute_stage>::_sol_old; \
+using ADComputeIncrementalShellStrain<compute_stage>::computeBMatrix; \
+using ADComputeIncrementalShellStrain<compute_stage>::computeSolnVector; \
+using ADComputeIncrementalShellStrain<compute_stage>::updateGVectors; \
+using ADComputeIncrementalShellStrain<compute_stage>::updatedxyz; \
+using ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix
 
 // Forward Declarations
 template <ComputeStage>
@@ -38,8 +74,13 @@ public:
 protected:
   virtual void initQpStatefulProperties() override;
   virtual void computeProperties() override;
-  virtual void computeLargeStrain();
+  virtual void computeSolnVector();
   virtual void initialSetup() override;
+  virtual void computeBMatrix();
+  virtual void computeNodeNormal();
+  virtual void updateGVectors(){};
+  virtual void updatedxyz(){};
+  virtual void computeGMatrix();
 
   /// Number of coupled rotational variables
   unsigned int _nrot;
@@ -109,13 +150,22 @@ protected:
   std::vector<std::vector<Real>> _phi_map;
 
   /// Derivative of global x, y and z w.r.t isoparametric coordinate xi
-  std::vector<std::vector<ADRealVectorValue>> _dxyz_dxi;
+  std::vector<ADMaterialProperty(RealVectorValue) *> _dxyz_dxi;
 
   /// Derivative of global x, y and z w.r.t isoparametric coordinate eta
-  std::vector<std::vector<ADRealVectorValue>> _dxyz_deta;
+  std::vector<ADMaterialProperty(RealVectorValue) *> _dxyz_deta;
 
   /// Derivative of global x, y and z w.r.t isoparametric coordinate zeta
-  std::vector<std::vector<ADRealVectorValue>> _dxyz_dzeta;
+  std::vector<ADMaterialProperty(RealVectorValue) *> _dxyz_dzeta;
+
+  /// Old derivative of global x, y and z w.r.t isoparametric coordinate xi
+  std::vector<const MaterialProperty<RealVectorValue> *> _dxyz_dxi_old;
+
+  /// Old derivative of global x, y and z w.r.t isoparametric coordinate eta
+  std::vector<const MaterialProperty<RealVectorValue> *> _dxyz_deta_old;
+
+  /// Old derivative of global x, y and z w.r.t isoparametric coordinate zeta
+  std::vector<const MaterialProperty<RealVectorValue> *> _dxyz_dzeta_old;
 
   /// First tangential vectors at nodes
   std::vector<ADRealVectorValue> _V1;
@@ -126,13 +176,34 @@ protected:
   /// B_matrix for small strain
   std::vector<ADMaterialProperty(DenseMatrix<Real>) *> _B;
 
-  std::vector<ADMaterialProperty(DenseMatrix<Real>) *> _BNL;
+  /// Old B_matrix for small strain
+  std::vector<const MaterialProperty<DenseMatrix<Real>> *> _B_old;
 
   /// ge matrix for elasticity tensor conversion
   std::vector<ADMaterialProperty(RankTwoTensor) *> _ge;
 
+  /// Old ge matrix for elasticity tensor conversion
+  std::vector<const MaterialProperty<RankTwoTensor> *> _ge_old;
+
   /// Material property containing jacobian of transformation
   std::vector<ADMaterialProperty(Real) *> _Jmap;
+
+  /// Old material property containing jacobian of transformation
+  std::vector<const MaterialProperty<Real> *> _Jmap_old;
+
+  /// simulation variables
+  ADRealVectorValue _x2;
+  ADRealVectorValue _x3;
+  const NumericVector<Number> * const & _sol;
+  const NumericVector<Number> & _sol_old;
+  ADRealVectorValue _g3_A;
+  ADRealVectorValue _g3_C;
+  ADRealVectorValue _g3_B;
+  ADRealVectorValue _g3_D;
+  ADRealVectorValue _g1_A;
+  ADRealVectorValue _g1_C;
+  ADRealVectorValue _g2_B;
+  ADRealVectorValue _g2_D;
 
   usingMaterialMembers;
 };
