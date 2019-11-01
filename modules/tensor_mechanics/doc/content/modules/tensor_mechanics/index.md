@@ -91,6 +91,7 @@ introductory theory pages on the various models:
 - [C0 Timoshenko Beam](tensor_mechanics/C0TimoshenkoBeam.md)
 - [Dynamics](tensor_mechanics/Dynamics.md)
 - [Viscoplasticity](/ADViscoplasticityStressUpdate.md)
+- [Shell elements](tensor_mechanics/ShellElements.md)
 
 !col-end!
 !row-end!

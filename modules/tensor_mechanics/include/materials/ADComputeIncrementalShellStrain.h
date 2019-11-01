@@ -75,7 +75,6 @@ protected:
   virtual void initQpStatefulProperties() override;
   virtual void computeProperties() override;
   virtual void computeSolnVector();
-  virtual void initialSetup() override;
   virtual void computeBMatrix();
   virtual void computeNodeNormal();
   virtual void updateGVectors(){};

@@ -1,20 +1,28 @@
+# Test that models bending of a cantilever beam using shell elements
+
+# A cantilever beam of length 10 m (in Y direction) and cross-section
+# 1 m x 0.1 m is modeled using 4 shell elements placed along the length
+# (Figure 6a from Dvorkin and Bathe, 1984). All displacements and
+# X rotations are fixed on the bottom boundary. E = 2100000 and v = 0.0.
+# A load of 0.5 N (in the Z direction) is applied at each node on the top
+# boundary resulting in a total load of 1 N.
+
+# The analytical solution for displacement at tip using small strain/rotations # is PL^3/3EI + PL/AG = 1.90485714 m
+# The FEM solution using 4 shell elements is 1.875095 m with a relative error
+# of 1.5%.
+
+# Similarly, the analytical solution for slope at tip is PL^2/2EI = 0.285714286
+# The FEM solution is 0.2857143 and the relative error is 5e-6%.
+
 [Mesh]
   type = GeneratedMesh
   dim = 2
   nx = 1
-  ny = 1
+  ny = 4
   xmin = 0.0
   xmax = 1.0
   ymin = 0.0
   ymax = 10.0
-[]
-
-[MeshModifiers]
-  [./cnode]
-    type = AddExtraNodeset
-    coord = '0.0 0.0'
-    new_boundary = 100
-  [../]
 []
 
 [Variables]
@@ -59,36 +67,26 @@
     boundary = bottom
     value = 0.0
   [../]
-  #[./fixr2]
-  #  type = PresetBC
-  #  variable = rot_y
-  #  boundary = bottom
-  #  value = 0.0
-  #[../]
+  [./fixr2]
+    type = PresetBC
+    variable = rot_y
+    boundary = bottom
+    value = 0.0
+  [../]
   [./fixx1]
     type = PresetBC
     variable = disp_x
-    boundary = 100
+    boundary = bottom
     value = 0.0
   [../]
 []
 
 [NodalKernels]
   [./force_y2]
-    type = UserForcingFunctionNodalKernel
-#    type = ConstantRate
-    variable = rot_x
+    type = ConstantRate
+    variable = disp_z
     boundary = top
-#    rate = 2.62
-    function = force_y
-  [../]
-[]
-
-[Functions]
-  [./force_y]
-    type = PiecewiseLinear
-    x = '0.0 1.0 3.0'
-    y = '0.0 2.62 2.62'
+    rate = 0.5
   [../]
 []
 
@@ -102,17 +100,13 @@
 [Executioner]
   type = Transient
   solve_type = NEWTON
-  petsc_options = '-snes_check_jacobian'
-#  petsc_options_iname = '-pc_type'
-#  petsc_options_value = 'lu'
-#  line_search = 'none'
   nl_max_its = 2
   nl_rel_tol = 1e-10
   nl_abs_tol = 5e-4
 
   dt = 1
   dtmin = 1
-  end_time = 3
+  end_time = 1
 []
 
 [Kernels]
@@ -157,7 +151,7 @@
   [./elasticity]
     type = ADComputeIsotropicElasticityTensorShell
     youngs_modulus = 2100000
-    poissons_ratio = 0.3
+    poissons_ratio = 0.0
     block = 0
     order = SECOND
   [../]
@@ -177,25 +171,15 @@
 []
 
 [Postprocessors]
-  [./disp_z1]
-    type = PointValue
-    point = '0.0 10.0 0.0'
-    variable = disp_z
-  [../]
-  [./disp_z2]
+  [./disp_z_tip]
     type = PointValue
     point = '1.0 10.0 0.0'
     variable = disp_z
   [../]
-  [./disp_y1]
+  [./rot_x_tip]
     type = PointValue
     point = '0.0 10.0 0.0'
     variable = rot_x
-  [../]
-  [./disp_y2]
-    type = PointValue
-    point = '1.0 10.0 0.0'
-    variable = disp_y
   [../]
 []
 

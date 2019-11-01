@@ -1,31 +1,44 @@
-# Large strain/rotation test for shell elements
+# Test for simply supported plate under uniform pressure
 
-# A cantilever beam that is 40 m long (Y direction) with 1 m x 1 m
-# cross-section is modeled using 5 shell elements placed along its
-# length. The bottom boundary is fixed in all displacements and
-# rotations. A load of 0.140625 N is applied at each node on the top
-# boundary, resulting in a total load of 0.28125 N. E = 1800 Pa and
-# v = 0.0.
+# One quarter of a 50 m x 50 m x 1m plate is modeled in this test.
+# Pressure loading is applied on the top surface using nodal forces
+# of magnitude -10 N on all nodes. This corresponds to a pressure (q) of
+# -10.816 N/m^2.
 
-# The reference solution for large deflection of this beam is based on
-# K. E. Bisshopp and D.C. Drucker, Quaterly of Applied Mathematics,
-# Vol 3, No. # 3, 1945.
+# The FEM solution at (0,0), which is at the center of the full plate
+# is -2.997084e-03 m.
 
-# For PL^2/EI = 3, disp_z at tip = 0.6L = 24 m & disp_y at tip = 0.76*L-L = -9.6 m
+# The analytical solution for displacement at center of plate obtained
+# using a thin plate assumption for a square plate is
+# w = 16 q a^4/(D*pi^6) \sum_{m = 1,3,5, ..}^\inf \sum_{n = 1,3,5, ..}^\inf  (-1)^{(m+n-2)/2}/(mn*(m^2+n^2)^2)
 
-# The FEM solution at tip of cantilever is:
-# disp_z = 24.85069 m; relative error = 3.54 %
-# disp_y = -9.125937 m; relative error = 5.19 %
+# where a = 50 m, q = -10.816 N/m^2 and D = E/(12(1-v^2))
+# The analytical series solution converges to 2.998535904e-03 m
+# when the first 16 terms of the series are considered (i.e., until
+# m & n = 7).
+
+# The resulting relative error between FEM and analytical solution is
+# 0.048%.
+
 
 [Mesh]
   type = GeneratedMesh
   dim = 2
-  nx = 1
-  ny = 5
+  nx = 25
+  ny = 25
   xmin = 0.0
-  xmax = 1.0
+  xmax = 25.0
   ymin = 0.0
-  ymax = 40.0
+  ymax = 25.0
+[]
+
+[MeshModifiers]
+  [./allnodes]
+    type = BoundingBoxNodeSet
+    bottom_left = '0.0 0.0 0.0'
+    top_right = '25.0 25.0 0.0'
+    new_boundary = 101
+  [../]
 []
 
 [Variables]
@@ -52,53 +65,44 @@
 []
 
 [BCs]
-  [./fixy1]
+  [./symm_left_rot]
     type = PresetBC
-    variable = disp_y
-    boundary = bottom
+    variable = rot_y
+    boundary = left
     value = 0.0
   [../]
-  [./fixz1]
-    type = PresetBC
-    variable = disp_z
-    boundary = bottom
-    value = 0.0
-  [../]
-  [./fixr1]
+  [./symm_bottom_rot]
     type = PresetBC
     variable = rot_x
     boundary = bottom
     value = 0.0
   [../]
-  [./fixr2]
-    type = PresetBC
-    variable = rot_y
-    boundary = bottom
-    value = 0.0
-  [../]
-  [./fixx1]
+  [./simply_support_x]
     type = PresetBC
     variable = disp_x
-    boundary = bottom
+    boundary = 'right top bottom left'
+    value = 0.0
+  [../]
+  [./simply_support_y]
+    type = PresetBC
+    variable = disp_y
+    boundary = 'right top bottom left'
+    value = 0.0
+  [../]
+  [./simply_support_z]
+    type = PresetBC
+    variable = disp_z
+    boundary = 'right top'
     value = 0.0
   [../]
 []
 
 [NodalKernels]
   [./force_y2]
-    type = UserForcingFunctionNodalKernel
+    type = ConstantRate
     variable = disp_z
-    boundary = top
-    function = force_y
-  [../]
-[]
-
-[Functions]
-  [./force_y]
-    type = PiecewiseLinear
-    x = '0.0 1.0 3.0'
-    y = '0.0 1.0 1.0'
-    scale_factor = 0.140625
+    boundary = 101
+    rate = -10.0
   [../]
 []
 
@@ -115,10 +119,9 @@
   line_search = 'none'
   nl_rel_tol = 1e-10
   nl_abs_tol = 1e-8
-
-  dt = 0.1
-  dtmin = 0.1
-  end_time = 3.0
+  dt = 1.0
+  dtmin = 1.0
+  end_time = 1.0
 []
 
 [Kernels]
@@ -128,7 +131,6 @@
     component = 0
     variable = disp_x
     order = SECOND
-    large_strain = true
   [../]
   [./solid_disp_y]
     type = ADStressDivergenceShell
@@ -136,7 +138,6 @@
     component = 1
     variable = disp_y
     order = SECOND
-    large_strain = true
   [../]
   [./solid_disp_z]
     type = ADStressDivergenceShell
@@ -144,7 +145,6 @@
     component = 2
     variable = disp_z
     order = SECOND
-    large_strain = true
   [../]
   [./solid_rot_x]
     type = ADStressDivergenceShell
@@ -152,7 +152,6 @@
     component = 3
     variable = rot_x
     order = SECOND
-    large_strain = true
   [../]
   [./solid_rot_y]
     type = ADStressDivergenceShell
@@ -160,20 +159,19 @@
     component = 4
     variable = rot_y
     order = SECOND
-    large_strain = true
   [../]
 []
 
 [Materials]
   [./elasticity]
     type = ADComputeIsotropicElasticityTensorShell
-    youngs_modulus = 1800
-    poissons_ratio = 0.0
+    youngs_modulus = 1e9
+    poissons_ratio = 0.3
     block = 0
     order = SECOND
   [../]
   [./strain]
-    type = ADComputeFiniteShellStrain
+    type = ADComputeIncrementalShellStrain
     block = '0'
     displacements = 'disp_x disp_y disp_z'
     rotations = 'rot_x rot_y'
@@ -190,13 +188,8 @@
 [Postprocessors]
   [./disp_z2]
     type = PointValue
-    point = '1.0 40.0 0.0'
+    point = '0.0 0.0 0.0'
     variable = disp_z
-  [../]
-  [./disp_y2]
-    type = PointValue
-    point = '1.0 40.0 0.0'
-    variable = disp_y
   [../]
 []
 

@@ -27,7 +27,7 @@ registerADMooseObject("TensorMechanicsApp", ADComputeIncrementalShellStrain);
 defineADValidParams(
     ADComputeIncrementalShellStrain,
     ADMaterial,
-    params.addClassDescription("Compute a infinitesimal/large strain increment for the shell.");
+    params.addClassDescription("Compute a small strain increment for the shell.");
     params.addRequiredCoupledVar(
         "rotations", "The rotations appropriate for the simulation geometry and coordinate system");
     params.addRequiredCoupledVar(
@@ -118,8 +118,6 @@ ADComputeIncrementalShellStrain<compute_stage>::ADComputeIncrementalShellStrain(
              _total_strain_old[i] = &getMaterialPropertyOldByName<RankTwoTensor>("total_strain_t_points_" + std::to_string(i));
              _B[i] = &declareADProperty<DenseMatrix<Real>>("B_matrix_t_points_" + std::to_string(i));
              _B_old[i] = &getMaterialPropertyOldByName<DenseMatrix<Real>>("B_matrix_t_points_" + std::to_string(i));
-//             if (_large_strain)
-//               _BNL[i] = &declareADProperty<DenseMatrix<Real>>("BNL_matrix_t_points_" + std::to_string(i));
              _ge[i] = &declareADProperty<RankTwoTensor>("ge_matrix_t_points_" + std::to_string(i));
              _ge_old[i] = &getMaterialPropertyOldByName<RankTwoTensor>("ge_matrix_t_points_" + std::to_string(i));
              _Jmap[i] = &declareADProperty<Real>("J_mapping_t_points_" + std::to_string(i));
@@ -131,31 +129,6 @@ ADComputeIncrementalShellStrain<compute_stage>::ADComputeIncrementalShellStrain(
              _dxyz_dzeta[i] = &declareADProperty<RealVectorValue>("dxyz_dzeta_t_points_" + std::to_string(i));
              _dxyz_dzeta_old[i] = &getMaterialPropertyOldByName<RealVectorValue>("dxyz_dzeta_t_points_" + std::to_string(i));
           }
-}
-
-template <ComputeStage compute_stage>
-void
-ADComputeIncrementalShellStrain<compute_stage>::initialSetup()
-{
-  printf("entered int\n");
-/*  if (_qrule)
-  {
-    // quadrature points in isoparametric space
-    _2d_points = _qrule->get_points(); // would be in 2D
-
-    unsigned int dim = _current_elem->dim();
-    if ((dim != 2))
-      mooseError("Shell element is implemented only for 2D Linear elements");
-
-    // derivatives of shape functions (dphidxi, dphideta and dphidzeta) evaluated at quadrature points (in isoparametric space).
-    FEType fe_type(Utility::string_to_enum<Order>("First"),
-    Utility::string_to_enum<FEFamily>("LAGRANGE"));
-    auto & fe = _fe_problem.assembly(_tid).getFE(fe_type, dim);
-    _dphidxi_map = fe->get_fe_map().get_dphidxi_map();
-    _dphideta_map = fe->get_fe_map().get_dphideta_map();
-    _phi_map = fe->get_fe_map().get_phi_map();
-  } */
-  printf("exit init \n");
 }
 
 template <ComputeStage compute_stage>
@@ -458,228 +431,6 @@ ADComputeIncrementalShellStrain<compute_stage>::computeBMatrix()
     }
   }
 }
-
-/*template <ComputeStage compute_stage>
-void
-ADComputeIncrementalShellStrain<compute_stage>::computeBNLMatrix()
-{
-    // compute nodal local axis
-    _x2(1) = 1;
-    _x3(2) = 1;
-
-    for (unsigned int k = 0; k < _nodes.size(); ++k)
-    {
-      _V1[k] = _x2.cross(_node_normal_old[k]);
-      _V1[k] /= _x2.norm() * _node_normal_old[k].norm();
-
-      // If x2 is parallel to node normal, set V1 to x3
-      if (MooseUtils::absoluteFuzzyEqual(_V1[k].norm(), 0.0, 1e-6))
-        _V1[k] = _x3;
-
-      _V2[k] = _node_normal_old[k].cross(_V1[k]);
-   }
-
-    // compute B matrix rows correspond to [ux1, ux2, ux3, ux4, uy1, uy2, uy3, uy4, uz1, uz2, uz3, uz4, a1, a2, a3, a4, b1, b2, b3, b4]
-    for (unsigned int i = 0; i < _2d_points.size(); ++i)
-    {
-      for (unsigned int j = 0; j < _t_points.size(); ++j)
-      {
-        (*_B[j])[i].resize(5, 20);
-        (*_B[j])[i].zero();
-          for (unsigned int k = 0; k < _nodes.size(); ++k)
-          {
-            // corresponding to strain(0,0)
-            (*_B[j])[i](0,k) += _dphidxi_map[k][i] * (*_dxyz_dxi[j])[i](0);
-            (*_B[j])[i](0,4+k) = _dphidxi_map[k][i] * (*_dxyz_dxi[j])[i](1);
-            (*_B[j])[i](0,8+k) = _dphidxi_map[k][i] * (*_dxyz_dxi[j])[i](2);
-            (*_B[j])[i](0,12+k) = _dphidxi_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (-_V2[k] * (*_dxyz_dxi[j])[i]);
-            (*_B[j])[i](0,16+k) = _dphidxi_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (_V1[k] * (*_dxyz_dxi[j])[i]);
-
-            // corresponding to strain(1,1)
-            (*_B[j])[i](1,k) = _dphideta_map[k][i] * (*_dxyz_deta[j])[i](0);
-            (*_B[j])[i](1,4+k) = _dphideta_map[k][i] * (*_dxyz_deta[j])[i](1);
-            (*_B[j])[i](1,8+k) = _dphideta_map[k][i] * (*_dxyz_deta[j])[i](2);
-            (*_B[j])[i](1,12+k) = _dphideta_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (-_V2[k] * (*_dxyz_deta[j])[i]);
-            (*_B[j])[i](1,16+k) = _dphideta_map[k][i] * _t_points[j](0) / 2.0 * _thickness[i] * (_V1[k] * (*_dxyz_deta[j])[i]);
-
-            // corresponding to strain(2,2) = 0
-
-            //corresponding to strain(0,1)
-            (*_B[j])[i](2,k) = 0.5 * (_dphideta_map[k][i] * (*_dxyz_dxi[j])[i](0) + _dphidxi_map[k][i] * (*_dxyz_deta[j])[i](0));
-            (*_B[j])[i](2,4+k) = 0.5 * (_dphideta_map[k][i] * (*_dxyz_dxi[j])[i](1) + _dphidxi_map[k][i] * (*_dxyz_deta[j])[i](1));
-            (*_B[j])[i](2,8+k) = 0.5 * (_dphideta_map[k][i] * (*_dxyz_dxi[j])[i](2) + _dphidxi_map[k][i] * (*_dxyz_deta[j])[i](2));
-            (*_B[j])[i](2,12+k) = 0.25 * _t_points[j](0) * _thickness[i] * -_V2[k] * (_dphideta_map[k][i] * (*_dxyz_dxi[j])[i] + _dphidxi_map[k][i] * (*_dxyz_deta[j])[i]);
-            (*_B[j])[i](2,16+k) = 0.25 * _t_points[j](0) * _thickness[i] * _V1[k] * ((*_dxyz_deta[j])[i] * _dphidxi_map[k][i] + (*_dxyz_dxi[j])[i] * _dphideta_map[k][i]);
-          }
-
-
-          _g3_A = _thickness[i] / 4.0 * (_node_normal_old[2] + _node_normal_old[3]);
-          _g3_C = _thickness[i] / 4.0 * (_node_normal_old[0] + _node_normal_old[1]);
-          _g3_B = _thickness[i] / 4.0 * (_node_normal_old[0] + _node_normal_old[3]);
-          _g3_D = _thickness[i] / 4.0 * (_node_normal_old[1] + _node_normal_old[2]);
-
-          _g1_A = 0.5 * ((*_nodes[2]) - (*_nodes[3])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[2] - _node_normal_old[3]);
-          _g1_C = 0.5 * ((*_nodes[1]) - (*_nodes[0])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[1] - _node_normal_old[0]);
-          _g2_B = 0.5 * ((*_nodes[3]) - (*_nodes[0])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[3] - _node_normal_old[0]);
-          _g2_D = 0.5 * ((*_nodes[2]) - (*_nodes[1])) + _t_points[j](0)/4.0 * _thickness[i] * (_node_normal_old[2] - _node_normal_old[1]);
-
-          if (_large_strain)
-          {
-           for (unsigned int component = 0; component < 3; ++component)
-           {
-            _g1_A(component) += 0.5 * (_sol_old(_soln_disp_index[2][component]) - _sol_old(_soln_disp_index[3][component]));
-            _g1_C(component) += 0.5 * (_sol_old(_soln_disp_index[1][component]) - _sol_old(_soln_disp_index[0][component]));
-            _g2_B(component) += 0.5 * (_sol_old(_soln_disp_index[3][component]) - _sol_old(_soln_disp_index[0][component]));
-            _g2_D(component) += 0.5 * (_sol_old(_soln_disp_index[2][component]) - _sol_old(_soln_disp_index[1][component]));
-           }
-        }
-
-          // corresponding to strain(0,2)
-          for (unsigned int component = 0; component < 3; component ++)
-          {
-            (*_B[j])[i](3,2+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * _g3_A(component);
-            (*_B[j])[i](3,3+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * -_g3_A(component);
-            (*_B[j])[i](3,1+ component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * _g3_C(component);
-            (*_B[j])[i](3,component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * -_g3_C(component);
-          }
-          (*_B[j])[i](3, 14) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_A * -_V2[2];
-          (*_B[j])[i](3, 18) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_A * _V1[2];
-          (*_B[j])[i](3, 15) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_A * -_V2[3];
-          (*_B[j])[i](3, 19) = 1.0/8.0 * (1.0 + _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_A * _V1[3];
-
-          (*_B[j])[i](3, 13) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_C * -_V2[1];
-          (*_B[j])[i](3, 17) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_C * _V1[1];
-          (*_B[j])[i](3, 12) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_C * -_V2[0];
-          (*_B[j])[i](3, 16) = 1.0/8.0 * (1.0 - _2d_points[i](1)) * 0.5 * _thickness[i] * _g1_C * _V1[0];
-
-          // corresponding to strain(1,2)
-          for (unsigned int component = 0; component < 3; component ++)
-          {
-            (*_B[j])[i](4,2+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * _g3_D(component);
-            (*_B[j])[i](4,1+ component * 4) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * - _g3_D(component);
-            (*_B[j])[i](4,3+ component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * _g3_B(component);
-            (*_B[j])[i](4,component * 4) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * -_g3_B(component);
-          }
-          (*_B[j])[i](4, 14) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_D * -_V2[2];
-          (*_B[j])[i](4, 18) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_D * _V1[2];
-          (*_B[j])[i](4, 13) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_D * -_V2[1];
-          (*_B[j])[i](4, 17) = 1.0/8.0 * (1.0 + _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_D * _V1[1];
-
-          (*_B[j])[i](4, 15) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_B * -_V2[3];
-          (*_B[j])[i](4, 19) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_B * _V1[3];
-          (*_B[j])[i](4, 12) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_B * -_V2[0];
-          (*_B[j])[i](4, 16) = 1.0/8.0 * (1.0 - _2d_points[i](0)) * 0.5 * _thickness[i] * _g2_B * _V1[0];
-      }
-    }
-
-  // compute BNL matrix - rows correspond to [ux1, ux2, ux3, ux4, uy1, uy2, uy3, uy4, uz1, uz2, uz3, uz4, a1, a2, a3, a4, b1, b2, b3, b4]
-
-  for (unsigned int i = 0; i < _2d_points.size(); ++i)
-  {
-    for (unsigned int j = 0; j < _t_points.size(); ++j)
-    {
-      (*_BNL[j])[i].resize(5, 20);
-      (*_BNL[j])[i].zero();
-      for (unsigned int k = 0; k < 4; ++k)
-      {
-        for (unsigned int p = 0; p < 4; ++p) // loop over nodes
-        {
-          // corresponding to strain(0,0)
-          (*_BNL[j])[i](0,k) += _dphidxi_map[k][i] * _dphidxi_map[p][i] * (_soln_vector(p)
-                             + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](0)
-                             + _soln_vector(p+16) * _V1[p](0)));
-          (*_BNL[j])[i](0,4+k) += _dphidxi_map[k][i] * _dphidxi_map[p][i] * (_soln_vector(p+4)
-                               + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](1)
-                               + _soln_vector(p+16) * _V1[p](1)));
-          (*_BNL[j])[i](0,8+k) += _dphidxi_map[k][i] * _dphidxi_map[p][i] * (_soln_vector(p+8)
-                               + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](2)
-                               + _soln_vector(p+16) * _V1[p](2)));
-          (*_BNL[j])[i](0,12+k) += _t_points[j](0)/2.0 * _thickness[i] * _dphidxi_map[k][i] * _dphidxi_map[p][i] * (- (_V2[p](0) * _soln_vector(p) + _V2[p](1) * _soln_vector(p+4) + _V2[p](2) * _soln_vector(p+8)) +  _t_points[j](0) / 2.0 * _thickness[i] * _V2[k]
-                                * (_V2[p] * _soln_vector(p+12) - _V1[p] * _soln_vector(p+16)));
-          (*_BNL[j])[i](0,16+k) += _t_points[j](0)/2.0 * _thickness[i] * _dphidxi_map[k][i] * _dphidxi_map[p][i] * ((_V1[p](0) * _soln_vector(p) + _V1[p](1) * _soln_vector(p+4) + _V1[p](2) * _soln_vector(p+8)) +  _t_points[j](0) / 2.0 * _thickness[i] * _V1[k]
-                                * (-_V2[p] * _soln_vector(p+12) + _V1[p] * _soln_vector(p+16)));
-
-          // corresponding to strain(1,1)
-          (*_BNL[j])[i](1,k) += _dphideta_map[k][i] * _dphideta_map[p][i] * (_soln_vector(p)
-                            + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](0)
-                            + _soln_vector(p+16) * _V1[p](0)));
-          (*_BNL[j])[i](1,4+k) += _dphideta_map[k][i] * _dphideta_map[p][i] * (_soln_vector(p+4)
-                              + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](1)
-                              + _soln_vector(p+16) * _V1[p](1)));
-          (*_BNL[j])[i](1,8+k) += _dphideta_map[k][i] * _dphideta_map[p][i] * (_soln_vector(p+8)
-                               + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](2)
-                               + _soln_vector(p+16) * _V1[p](2)));
-          (*_BNL[j])[i](1,12+k) += _t_points[j](0)/2.0 * _thickness[i] * _dphideta_map[k][i] * _dphideta_map[p][i] * (- (_V2[p](0) * _soln_vector(p) + _V2[p](1) * _soln_vector(p+4) + _V2[p](2) * _soln_vector(p+8)) +  _t_points[j](0) / 2.0 * _thickness[i] * _V2[k]
-                                * (_V2[p] * _soln_vector(p+12) - _V1[p] * _soln_vector(p+16)));
-          (*_BNL[j])[i](1,16+k) += _t_points[j](0)/2.0 * _thickness[i] * _dphideta_map[k][i] * _dphideta_map[p][i] * ((_V1[p](0) * _soln_vector(p) + _V1[p](1) * _soln_vector(p+4) + _V1[p](2) * _soln_vector(p+8)) +  _t_points[j](0) / 2.0 * _thickness[i] * _V1[k]
-                                * (-_V2[p] * _soln_vector(p+12) + _V1[p] * _soln_vector(p+16)));
-
-          // terms corresponding to strain(2,2) are 0.
-
-          // corresponding to strain(0,1)
-          (*_BNL[j])[i](2,k) += 0.5 *(_dphidxi_map[k][i] * _dphideta_map[p][i] + _dphideta_map[k][i] * _dphidxi_map[p][i]) * (_soln_vector(p)
-                             + _t_points[j](0) / 2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](0)
-                             + _soln_vector(p+16) * _V1[p](0)));
-          (*_BNL[j])[i](2,4+k) += 0.5 *(_dphidxi_map[k][i] * _dphideta_map[p][i] + _dphideta_map[k][i] * _dphidxi_map[p][i]) * (_soln_vector(p+4)
-                              + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](1)
-                              + _soln_vector(p+16) * _V1[p](1)));
-          (*_BNL[j])[i](2,8+k) +=  0.5 *(_dphidxi_map[k][i] * _dphideta_map[p][i] + _dphideta_map[k][i] * _dphidxi_map[p][i]) * (_soln_vector(p+8)
-                              + _t_points[j](0)/2.0 * _thickness[i] *(-_soln_vector(p+12) * _V2[p](2)
-                              + _soln_vector(p+16) * _V1[p](2)));
-          (*_BNL[j])[i](2,12+k) += _t_points[j](0) * 0.25 *(_dphidxi_map[k][i] * _dphideta_map[p][i] + _dphideta_map[k][i] * _dphidxi_map[p][i]) * _thickness[i]
-                              * (-(_V2[k](0) * _soln_vector(p) + _V2[k](1) * _soln_vector(p+4) + _V2[k](2) * _soln_vector(p+8))
-                              + _t_points[j](0) / 2.0 * _thickness[i] * _V2[k]
-                              * (_V2[p] * _soln_vector(p+12) - _V1[p] * _soln_vector(p+16)));
-          (*_BNL[j])[i](2,16+k) +=  _t_points[j](0) * 0.25 *(_dphidxi_map[k][i] * _dphideta_map[p][i] + _dphideta_map[k][i] * _dphidxi_map[p][i]) * _thickness[i]
-                              * ((_V1[k](0) * _soln_vector(p) + _V1[k](1) * _soln_vector(p+4) + _V1[k](2) * _soln_vector(p+8))
-                              + _t_points[j](0) / 2.0 * _thickness[i] * _V1[k]
-                              * (-_V2[p] * _soln_vector(p+12) + _V1[p] * _soln_vector(p+16)));
-        }
-      }
-
-      for (unsigned int component = 0; component < 3; ++component)
-      {
-        // corresponding to strain(0,2)
-        (*_BNL[j])[i](3,2 + component * 4) += 1.0/32.0 * (1.0 + _2d_points[i](1)) * _thickness[i] * (-_soln_vector(12 + 2) * _V2[2](component) + _soln_vector(16 + 2) * _V1[2](component) -_soln_vector(12 + 3) * _V2[3](component) + _soln_vector(16 + 3) * _V1[3](component));
-        (*_BNL[j])[i](3, 3 + component * 4) += - (*_BNL[j])[i](3, 2 + component * 4);
-
-        (*_BNL[j])[i](3,1 + component * 4) += 1.0/32.0 * (1.0 - _2d_points[i](1)) * _thickness[i] * (-_soln_vector(12 + 1) * _V2[1](component) + _soln_vector(16 + 1) * _V1[1](component) -_soln_vector(12 + 0) * _V2[0](component) + _soln_vector(16 + 0) * _V1[0](component));
-        (*_BNL[j])[i](3, component * 4) += - (*_BNL[j])[i](3, 1 + component * 4);
-
-        // adding contributions corresponding to alpha 2 and 3 and beta 2 and 3
-        (*_BNL[j])[i](3, 12+2) += - 1.0/32.0 * (1.0 + _2d_points[i](1)) * _thickness[i] * _V2[2](component) * (_soln_vector(2 + component*4) - _soln_vector(3 + component * 4));
-        (*_BNL[j])[i](3, 16+2) += 1.0/32.0 * (1.0 + _2d_points[i](1)) * _thickness[i] * _V1[2](component) * (_soln_vector(2 + component*4) - _soln_vector(3 + component * 4));
-        (*_BNL[j])[i](3, 12+3) += - 1.0/32.0 * (1.0 + _2d_points[i](1)) * _thickness[i] * _V2[3](component) * (_soln_vector(2 + component*4) - _soln_vector(3 + component * 4));
-        (*_BNL[j])[i](3, 16+3) += 1.0/32.0 * (1.0 + _2d_points[i](1)) * _thickness[i] * _V1[3](component) * (_soln_vector(2 + component*4) - _soln_vector(3 + component * 4));
-
-        // adding contributions corresponding to alpha 1 and 0 and beta 1 and 0
-        (*_BNL[j])[i](3, 12+1) += - 1.0/32.0 * (1.0 - _2d_points[i](1)) * _thickness[i] * _V2[1](component) * (_soln_vector(1 + component*4) - _soln_vector(component * 4));
-        (*_BNL[j])[i](3, 16+1) += 1.0/32.0 * (1.0 - _2d_points[i](1)) * _thickness[i] * _V1[1](component) * (_soln_vector(1 + component*4) - _soln_vector(component * 4));
-        (*_BNL[j])[i](3, 12+0) += - 1.0/32.0 * (1.0 - _2d_points[i](1)) * _thickness[i] * _V2[0](component) * (_soln_vector(1 + component*4) - _soln_vector(component * 4));
-        (*_BNL[j])[i](3, 16+0) += 1.0/32.0 * (1.0 - _2d_points[i](1)) * _thickness[i] * _V1[0](component) * (_soln_vector(1 + component*4) - _soln_vector(component * 4));
-
-        // corresponding to strain(1,2)
-        (*_BNL[j])[i](4,2 + component * 4) += 1.0/32.0 * (1.0 + _2d_points[i](0)) * _thickness[i] * (-_soln_vector(12 + 2) * _V2[2](component) + _soln_vector(16 + 2) * _V1[2](component) -_soln_vector(12 + 1) * _V2[1](component) + _soln_vector(16 + 1) * _V1[1](component));
-        (*_BNL[j])[i](4, 1 + component * 4) += - (*_BNL[j])[i](3, 2 + component * 4);
-
-        (*_BNL[j])[i](4,3 + component * 4) += 1.0/32.0 * (1.0 - _2d_points[i](0)) * _thickness[i] * (-_soln_vector(12 + 3) * _V2[3](component) + _soln_vector(16 + 3) * _V1[3](component) -_soln_vector(12 + 0) * _V2[0](component) + _soln_vector(16 + 0) * _V1[0](component));
-        (*_BNL[j])[i](4, component * 4) += - (*_BNL[j])[i](3, 3 + component * 4);
-
-        // adding contributions corresponding to alpha 2, 1 and beta 2 , 1
-        (*_BNL[j])[i](4, 12+2) += - 1.0/32.0 * (1.0 + _2d_points[i](0)) * _thickness[i] * _V2[2](component) * (_soln_vector(2 + component*4) - _soln_vector(1 + component * 4));
-        (*_BNL[j])[i](4, 16+2) += 1.0/32.0 * (1.0 + _2d_points[i](0)) * _thickness[i] * _V1[2](component) * (_soln_vector(2 + component*4) - _soln_vector(1 + component * 4));
-        (*_BNL[j])[i](4, 12+1) += - 1.0/32.0 * (1.0 + _2d_points[i](0)) * _thickness[i] * _V2[1](component) * (_soln_vector(2 + component*4) - _soln_vector(1 + component * 4));
-        (*_BNL[j])[i](4, 16+1) += 1.0/32.0 * (1.0 + _2d_points[i](0)) * _thickness[i] * _V1[1](component) * (_soln_vector(2 + component*4) - _soln_vector(1 + component * 4));
-
-        // adding contributions corresponding to alpha 3, 0 and beta 3 , 0
-        (*_BNL[j])[i](4, 12+3) += - 1.0/32.0 * (1.0 - _2d_points[i](0)) * _thickness[i] * _V2[3](component) * (_soln_vector(3 + component*4) - _soln_vector(component * 4));
-        (*_BNL[j])[i](4, 16+3) += 1.0/32.0 * (1.0 - _2d_points[i](0)) * _thickness[i] * _V1[3](component) * (_soln_vector(3 + component*4) - _soln_vector(component * 4));
-        (*_BNL[j])[i](4, 12+0) += - 1.0/32.0 * (1.0 - _2d_points[i](0)) * _thickness[i] * _V2[0](component) * (_soln_vector(3 + component*4) - _soln_vector(component * 4));
-        (*_BNL[j])[i](4, 16+0) += 1.0/32.0 * (1.0 - _2d_points[i](0)) * _thickness[i] * _V1[0](component) * (_soln_vector(3 + component*4) - _soln_vector(component * 4));
-      }
-    }
-  }
-} */
 
 template <>
 void

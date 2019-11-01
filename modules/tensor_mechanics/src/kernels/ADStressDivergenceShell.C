@@ -75,49 +75,12 @@ ADStressDivergenceShell<compute_stage>::computeQpResidual()
   for (_qp_z = 0; _qp_z < _t_weights.size(); ++_qp_z)
   {
     residual1 = (*_stress[_qp_z])[_qp](0,0) * (*_B_mat[_qp_z])[_qp](0,_i + _component*4) + (*_stress[_qp_z])[_qp](1,1) * (*_B_mat[_qp_z])[_qp](1,_i + _component*4) + 2.0 * (*_stress[_qp_z])[_qp](0,1) * (*_B_mat[_qp_z])[_qp](2,_i + _component*4) + 2.0 * (*_stress[_qp_z])[_qp](0,2) * (*_B_mat[_qp_z])[_qp](3,_i + _component*4) + 2.0 * (*_stress[_qp_z])[_qp](1,2) * (*_B_mat[_qp_z])[_qp](4,_i + _component*4);
-    //residual += (*_B_mat[_qp_z])[_qp](0,0); // + (*_stress[_qp_z])[_qp](1,1) * (*_B_mat[_qp_z])[_qp](1,_i + _component*4) + 2.0 * (*_stress[_qp_z])[_qp](0,1) * (*_B_mat[_qp_z])[_qp](2,_i + _component*4) + 2.0 * (*_stress[_qp_z])[_qp](0,2) * (*_B_mat[_qp_z])[_qp](3,_i + _component*4) + 2.0 * (*_stress[_qp_z])[_qp](1,2) * (*_B_mat[_qp_z])[_qp](4,_i + _component*4);
+
     if (_large_strain)
-    {
-      ADReal S00 = (*_stress_old[_qp_z])[_qp](0,0);
-      ADReal S01 = (*_stress_old[_qp_z])[_qp](0,1);
-      ADReal S11 = (*_stress_old[_qp_z])[_qp](1,1);
-      ADReal S02 = (*_stress_old[_qp_z])[_qp](0,2);
-      ADReal S12 = (*_stress_old[_qp_z])[_qp](1,2);
-      residual1 += (S00 * (*_B_NL[_qp_z])[_qp](0,_i + _component*4) + S11 * (*_B_NL[_qp_z])[_qp](1,_i + _component*4) + 2.0 * S01 * (*_B_NL[_qp_z])[_qp](2,_i + _component*4) +  2.0 * S02 * (*_B_NL[_qp_z])[_qp](3,_i + _component*4) + 2.0 * S12 * (*_B_NL[_qp_z])[_qp](4,_i + _component*4));
-    }
+      residual1 += ((*_stress_old[_qp_z])[_qp](0,0) * (*_B_NL[_qp_z])[_qp](0,_i + _component*4) + (*_stress_old[_qp_z])[_qp](1,1) * (*_B_NL[_qp_z])[_qp](1,_i + _component*4) + 2.0 * (*_stress_old[_qp_z])[_qp](0,1) * (*_B_NL[_qp_z])[_qp](2,_i + _component*4) +  2.0 * (*_stress_old[_qp_z])[_qp](0,2) * (*_B_NL[_qp_z])[_qp](3,_i + _component*4) + 2.0 * (*_stress_old[_qp_z])[_qp](1,2) * (*_B_NL[_qp_z])[_qp](4,_i + _component*4));
+
 
     residual += residual1 * (*_Jmap[_qp_z])[_qp] * _q_weights[_qp] * _t_weights[_qp_z] /(_ad_JxW[_qp] * _ad_coord[_qp]);
-    //residual *= (*_Jmap[_qp_z])[_qp] *  _q_weights[_qp];
-
   }
-/*  ColumnMajorMatrix S(6,6);
-  S(0,0) = S00;
-  S(1,1) = S(0,0);
-  S(2,2) = S(0,0);
-  S(3,3) = S11;
-  S(4,4) = S(3,3);
-  S(5,5) = S(3,3);
-  S(0, 3) = S01;
-  S(1,4) = S(0,3);
-  S(2,5) = S(0,3);
-  S(3, 0) = S(0,3);
-  S(4, 1) = S(0, 3);
-  S(5,2) = S(0,3);
-
-  ColumnMajorMatrix Knl(20,20);
-  std::vector<Real> a(20);
-  for (unsigned int temp = 0; temp < 20; ++temp)
-    a[temp] = temp+1.0;
-  Knl = _BNL_new[_qp][_qp_z].transpose() * S * _BNL_new[_qp][_qp_z];
-  for (unsigned int temp =0; temp < 20; ++temp)
-    lres += Knl(_i+_component*4, temp) * a[temp];
-
-  printf("lres, lres1, diff: %e, %e, %e\n", lres, lres1, lres-lres1);
-  printf("component, i, qp, qp_z: %u, %u, %u, %u \n", _component, _i, _qp, _qp_z);
-  printf("Knl, BNL: %e, %e \n", Knl(_i+_component*4, 1), 2.0 * (*_B_NL)[_qp][_qp_z](2,_i + _component*4));
-
-  if (std::abs(lres-lres1)/std::abs(lres) > 1e-3)
-    mooseError("what");
-  */
   return residual;
 }
