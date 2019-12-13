@@ -82,6 +82,7 @@ protected:
   virtual void updateGVectors(){};
   virtual void updatedxyz(){};
   virtual void computeGMatrix();
+  virtual ADRankTwoTensor matInverse(ADRankTwoTensor & A);
 
   /// Number of coupled rotational variables
   unsigned int _nrot;
@@ -191,6 +192,12 @@ protected:
 
   /// Old material property containing jacobian of transformation
   std::vector<const MaterialProperty<Real> *> _Jmap_old;
+
+  /// Rotation matrix material property
+  std::vector<MaterialProperty<RankTwoTensor> *> _rotation_matrix;
+
+  /// Total strain in global coordinate system
+  std::vector<MaterialProperty<RankTwoTensor> *> _total_global_strain;
 
   /// simulation variables
   ADRealVectorValue _x2;

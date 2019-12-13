@@ -76,6 +76,8 @@ ADComputeIncrementalShellStrain<compute_stage>::ADComputeIncrementalShellStrain(
     _ge_old(),
     _Jmap(),
     _Jmap_old(),
+    _rotation_matrix(),
+    _total_global_strain(),
     _sol(_nonlinear_sys.currentSolution()),
     _sol_old(_nonlinear_sys.solutionOld())
 {
@@ -115,6 +117,8 @@ ADComputeIncrementalShellStrain<compute_stage>::ADComputeIncrementalShellStrain(
   _dxyz_dxi_old.resize(_t_points.size());
   _dxyz_deta_old.resize(_t_points.size());
   _dxyz_dzeta_old.resize(_t_points.size());
+  _rotation_matrix.resize(_t_points.size());
+  _total_global_strain.resize(_t_points.size());
   for (unsigned int i = 0; i < _t_points.size(); ++i)
   {
     _strain_increment[i] =
@@ -141,6 +145,9 @@ ADComputeIncrementalShellStrain<compute_stage>::ADComputeIncrementalShellStrain(
         &declareADProperty<RealVectorValue>("dxyz_dzeta_t_points_" + std::to_string(i));
     _dxyz_dzeta_old[i] =
         &getMaterialPropertyOldByName<RealVectorValue>("dxyz_dzeta_t_points_" + std::to_string(i));
+    // Create rotation matrix and total strain global for output purposes only
+    _rotation_matrix[i] = &declareProperty<RankTwoTensor>("rotation_matrix_t_points_" + std::to_string(i));
+    _total_global_strain[i] = &declareProperty<RankTwoTensor>("total_global_strain_t_points_" + std::to_string(i));
   }
 }
 
@@ -203,7 +210,6 @@ ADComputeIncrementalShellStrain<compute_stage>::computeProperties()
         for (unsigned int temp2 = 0; temp2 < 20; ++temp2)
           _strain_vector(temp1) += (*_B[j])[i](temp1, temp2) * _soln_vector(temp2);
       }
-
       (*_strain_increment[j])[i](0, 0) = _strain_vector(0);
       (*_strain_increment[j])[i](1, 1) = _strain_vector(1);
       (*_strain_increment[j])[i](0, 1) = _strain_vector(2);
@@ -212,7 +218,13 @@ ADComputeIncrementalShellStrain<compute_stage>::computeProperties()
       (*_strain_increment[j])[i](1, 0) = (*_strain_increment[j])[i](0, 1);
       (*_strain_increment[j])[i](2, 0) = (*_strain_increment[j])[i](0, 2);
       (*_strain_increment[j])[i](2, 1) = (*_strain_increment[j])[i](1, 2);
+
       (*_total_strain[j])[i] = (*_total_strain_old[j])[i] + (*_strain_increment[j])[i];
+      RankTwoTensor temp;
+      for (unsigned int ii = 0; ii < 3; ++ii)
+        for (unsigned int jj = 0; jj < 3; ++jj)
+           temp(ii, jj) = MetaPhysicL::raw_value((*_total_strain[j])[i](ii, jj));
+      (*_total_global_strain[j])[i] = (*_rotation_matrix[j])[i].transpose() * temp * (*_rotation_matrix[j])[i];
     }
   }
   copyDualNumbersToValues();
@@ -252,6 +264,7 @@ ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix()
   ADRankTwoTensor a;
   ADDenseMatrix b(5, 20);
   ADRealVectorValue c;
+  RankTwoTensor d;
   for (unsigned int t = 0; t < _t_points.size(); ++t)
   {
     (*_strain_increment[t])[_qp] = a;
@@ -262,16 +275,11 @@ ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix()
     (*_dxyz_dxi[t])[_qp] = c;
     (*_dxyz_deta[t])[_qp] = c;
     (*_dxyz_dzeta[t])[_qp] = c;
+    (*_rotation_matrix[t])[_qp] = d;
   }
 
   // calculating derivatives of shape function is physical space (dphi/dx, dphi/dy, dphi/dz) at
   // quadrature points these are g_{i} in Dvorkin's paper
-  ADRealVectorValue en;
-  ADRealVectorValue ex;
-  ADRealVectorValue ey;
-  en(2) = 1.0;
-  ex(0) = 1.0;
-  ey(1) = 1.0;
   for (unsigned int i = 0; i < _2d_points.size(); ++i)
   {
     for (unsigned int j = 0; j < _t_points.size(); ++j)
@@ -287,15 +295,16 @@ ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix()
         {
           (*_dxyz_dxi[j])[i](component) +=
               _dphidxi_map[k][i] * ((*_nodes[k])(component)) +
-              _t_points[j](0) / 2.0 * _thickness[i] * _dphidxi_map[k][i] * en(component);
+              _t_points[j](0) / 2.0 * _thickness[i] * _dphidxi_map[k][i] * _node_normal[k](component);
           (*_dxyz_deta[j])[i](component) +=
               _dphideta_map[k][i] * ((*_nodes[k])(component)) +
-              _t_points[j](0) / 2.0 * _thickness[i] * _dphideta_map[k][i] * en(component);
-          (*_dxyz_dzeta[j])[i](component) += _thickness[i] * _phi_map[k][i] * en(component) / 2.0;
+              _t_points[j](0) / 2.0 * _thickness[i] * _dphideta_map[k][i] * _node_normal[k](component);
+          (*_dxyz_dzeta[j])[i](component) += _thickness[i] * _phi_map[k][i] * _node_normal[k](component) / 2.0;
         }
       }
     }
   }
+
 
   for (unsigned int i = 0; i < _2d_points.size(); ++i)
   {
@@ -303,6 +312,7 @@ ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix()
     {
       // calculate gij for elasticity tensor
       ADRankTwoTensor gmn;
+      RankTwoTensor J;
       for (unsigned int component = 0; component < 3; ++component)
       {
         gmn(0, 0) += (*_dxyz_dxi[j])[i](component) * (*_dxyz_dxi[j])[i](component);
@@ -311,13 +321,19 @@ ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix()
         gmn(0, 1) += (*_dxyz_dxi[j])[i](component) * (*_dxyz_deta[j])[i](component);
         gmn(0, 2) += (*_dxyz_dxi[j])[i](component) * (*_dxyz_dzeta[j])[i](component);
         gmn(1, 2) += (*_dxyz_deta[j])[i](component) * (*_dxyz_dzeta[j])[i](component);
+
+        J(0,component) = MetaPhysicL::raw_value((*_dxyz_dxi[j])[i](component));
+        J(1,component) = MetaPhysicL::raw_value((*_dxyz_deta[j])[i](component));
+        J(2,component) = MetaPhysicL::raw_value((*_dxyz_dzeta[j])[i](component));
       }
       gmn(1, 0) = gmn(0, 1);
       gmn(2, 0) = gmn(0, 2);
       gmn(2, 1) = gmn(1, 2);
-
-      ADRankTwoTensor gmninv = gmn.inverse();
+  //    printf("i, j:%u, %u \n", i, j);
+  //    printf("gmn: %e, %e, %e, %e, %e, %e, %e, %e, %e \n", MetaPhysicL::raw_value(gmn(0,0)), MetaPhysicL::raw_value(gmn(0,1)), MetaPhysicL::raw_value(gmn(0,2)), MetaPhysicL::raw_value(gmn(1,0)), MetaPhysicL::raw_value(gmn(1,1)), MetaPhysicL::raw_value(gmn(1,2)), MetaPhysicL::raw_value(gmn(2,0)), MetaPhysicL::raw_value(gmn(2,1)), MetaPhysicL::raw_value(gmn(2,2)));
+      ADRankTwoTensor gmninv_temp = matInverse(gmn);
       (*_Jmap[j])[i] = std::sqrt(gmn.det());
+      (*_rotation_matrix[j])[i] = J;
 
       // calculate ge
       ADRealVectorValue e3 = (*_dxyz_dzeta[j])[i] / (*_dxyz_dzeta[j])[i].norm();
@@ -325,6 +341,19 @@ ADComputeIncrementalShellStrain<compute_stage>::computeGMatrix()
       e1 /= e1.norm();
       ADRealVectorValue e2 = e3.cross(e1);
       e2 /= e2.norm();
+
+      ADRankTwoTensor trans;
+      trans(0,0) = e1(0);
+      trans(0,1) = e1(1);
+      trans(0,2) = e1(2);
+      trans(1,0) = e2(0);
+      trans(1,1) = e2(1);
+      trans(1,2) = e2(2);
+      trans(2,0) = e3(0);
+      trans(2,1) = e3(1);
+      trans(2,2) = e3(2);
+
+      ADRankTwoTensor gmninv = trans.transpose() * gmninv_temp * trans;
 
       (*_ge[j])[i](0, 0) = (gmninv * (*_dxyz_dxi[j])[i]) * e1;
       (*_ge[j])[i](0, 1) = (gmninv * (*_dxyz_dxi[j])[i]) * e2;
@@ -541,4 +570,23 @@ ADComputeIncrementalShellStrain<JACOBIAN>::computeSolnVector()
       Moose::derivInsert(_soln_vector(j + 12 + i * _nodes.size()).derivatives(), ad_offset + j, 1.);
     }
   }
+}
+
+template <ComputeStage compute_stage>
+ADRankTwoTensor
+ADComputeIncrementalShellStrain<compute_stage>::matInverse(ADRankTwoTensor & A)
+{
+    ADReal a11 = A(0,0), a12 = A(0,1), a13 = A(0,2),
+           a21 = A(1,0), a22 = A(1,1), a23 = A(1,2),
+           a31 = A(2,0), a32 = A(2,1), a33 = A(2,2);
+
+    ADReal my_det = a11*(a33*a22-a32*a23) - a21*(a33*a12-a32*a13) + a31*(a23*a12-a22*a13);
+
+    if (MetaPhysicL::raw_value(my_det) == 0.0)
+      mooseError("zero det\n");
+
+    // Inline comment characters are for lining up columns.
+    return ADRankTwoTensor(  (a33*a22-a32*a23)/my_det, -(a33*a12-a32*a13)/my_det,  (a23*a12-a22*a13)/my_det,
+                         -(a33*a21-a31*a23)/my_det,  (a33*a11-a31*a13)/my_det, -(a23*a11-a21*a13)/my_det,
+                          (a32*a21-a31*a22)/my_det, -(a32*a11-a31*a12)/my_det,  (a22*a11-a21*a12)/my_det);
 }

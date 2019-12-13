@@ -52,5 +52,11 @@ protected:
   /// Quadrature points along thickness
   std::vector<Point> _t_points;
 
+  /// Rotationa matrix material property
+  std::vector<const MaterialProperty<RankTwoTensor> *> _rotation_matrix;
+
+  /// Global stress tensor material property
+  std::vector<MaterialProperty<RankTwoTensor> *> _global_stress;
+
   usingMaterialMembers;
 };

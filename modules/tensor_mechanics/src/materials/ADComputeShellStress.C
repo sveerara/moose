@@ -39,6 +39,8 @@ ADComputeShellStress<compute_stage>::ADComputeShellStress(const InputParameters 
   _stress.resize(_t_points.size());
   _stress_old.resize(_t_points.size());
   _strain_increment.resize(_t_points.size());
+  _rotation_matrix.resize(_t_points.size());
+  _global_stress.resize(_t_points.size());
   for (unsigned int t = 0; t < _t_points.size(); ++t)
   {
     _elasticity_tensor[t] =
@@ -48,6 +50,11 @@ ADComputeShellStress<compute_stage>::ADComputeShellStress(const InputParameters 
         &getMaterialPropertyOldByName<RankTwoTensor>("stress_t_points_" + std::to_string(t));
     _strain_increment[t] =
         &getADMaterialProperty<RankTwoTensor>("strain_increment_t_points_" + std::to_string(t));
+    // rotation matrix and stress for output purposes only
+    _rotation_matrix[t] =
+        &getMaterialProperty<RankTwoTensor>("rotation_matrix_t_points_" + std::to_string(t));
+    _global_stress[t] =
+        &declareProperty<RankTwoTensor>("global_stress_t_points_" + std::to_string(t));
   }
 }
 
@@ -68,5 +75,10 @@ ADComputeShellStress<compute_stage>::computeQpProperties()
   {
     (*_stress[i])[_qp] =
         (*_stress_old[i])[_qp] + (*_elasticity_tensor[i])[_qp] * (*_strain_increment[i])[_qp];
+    RankTwoTensor temp;
+    for (unsigned int ii = 0; ii < 3; ++ii)
+      for (unsigned int jj = 0; jj < 3; ++jj)
+         temp(ii, jj) = MetaPhysicL::raw_value((*_stress[i])[_qp](ii, jj));
+    (*_global_stress[i])[_qp] = (*_rotation_matrix[i])[_qp].transpose() * temp * (*_rotation_matrix[i])[_qp];
   }
 }
